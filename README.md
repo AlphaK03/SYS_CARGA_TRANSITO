@@ -3,7 +3,7 @@
 1. **Clonar el repositorio**:
 
     ```bash
-    git clone https://github.com/usuario/proyecto.git
+    git clone https://github.com/AlphaK03/SYS_CARGA_TRANSITO.git
     ```
 
 2. **Crear un entorno virtual y activar**:
