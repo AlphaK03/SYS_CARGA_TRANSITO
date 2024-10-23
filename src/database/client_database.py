@@ -1,8 +1,8 @@
-# src/database/client_database.py
 import os
 import sqlite3
 from typing import List, Optional, Tuple
-
+import pandas as pd
+import json
 
 class ClientDatabase:
     """
@@ -29,6 +29,64 @@ class ClientDatabase:
             self.create_table()
         except sqlite3.OperationalError as e:
             raise Exception(f"No se pudo abrir la base de datos: {e}")
+
+
+    def import_clients(self, file_path: str, file_type: str):
+        """
+        Importa clientes desde un archivo especificado.
+
+        Args:
+            file_path (str): Ruta al archivo a importar.
+            file_type (str): Tipo de archivo ('excel', 'csv', 'json').
+        """
+        if file_type == 'excel':
+            df = pd.read_excel(file_path)
+        elif file_type == 'csv':
+            df = pd.read_csv(file_path)
+        elif file_type == 'json':
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+            df = pd.DataFrame(data)
+        else:
+            raise ValueError("Tipo de archivo no soportado.")
+
+        # Se espera que el DataFrame tenga columnas 'nombre' y 'correo'
+        if 'nombre' not in df.columns or 'correo' not in df.columns:
+            raise ValueError("El archivo debe contener las columnas 'nombre' y 'correo'.")
+
+        # Insertar o actualizar los registros
+        cursor = self.connection.cursor()
+        for _, row in df.iterrows():
+            nombre = row['nombre']
+            correo = row['correo']
+            cursor.execute('''
+                INSERT INTO clientes (nombre, correo)
+                VALUES (?, ?)
+                ON CONFLICT(nombre) DO UPDATE SET correo=excluded.correo
+            ''', (nombre, correo))
+        self.connection.commit()
+
+    def export_clients(self, file_path: str, file_type: str):
+        """
+        Exporta la lista de clientes a un archivo especificado.
+
+        Args:
+            file_path (str): Ruta al archivo de destino.
+            file_type (str): Tipo de archivo ('excel', 'csv', 'json').
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT nombre, correo FROM clientes')
+        rows = cursor.fetchall()
+        df = pd.DataFrame(rows, columns=['nombre', 'correo'])
+
+        if file_type == 'excel':
+            df.to_excel(file_path, index=False)
+        elif file_type == 'csv':
+            df.to_csv(file_path, index=False)
+        elif file_type == 'json':
+            df.to_json(file_path, orient='records', indent=4)
+        else:
+            raise ValueError("Tipo de archivo no soportado.")
 
     def create_table(self):
         """

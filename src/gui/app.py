@@ -39,6 +39,8 @@ class Application(tk.Tk):
         # Menú "Gestión"
         gestion_menu = tk.Menu(menu_bar, tearoff=0)
         gestion_menu.add_command(label="Gestor de Clientes", command=self.open_client_manager)
+        gestion_menu.add_command(label="Importar Clientes", command=self.import_clients)
+        gestion_menu.add_command(label="Exportar Clientes", command=self.export_clients)
         menu_bar.add_cascade(label="Gestión", menu=gestion_menu)
 
         # Frame para seleccionar archivo
@@ -59,6 +61,63 @@ class Application(tk.Tk):
         boton_generar.pack(pady=10)
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+
+    def import_clients(self):
+        # Ventana para seleccionar el archivo a importar
+        file_path = filedialog.askopenfilename(title="Seleccionar archivo para importar",
+                                               filetypes=[("Todos los archivos", "*.*"),
+                                                          ("Archivos Excel", "*.xlsx"),
+                                                          ("Archivos CSV", "*.csv"),
+                                                          ("Archivos JSON", "*.json")])
+        if file_path:
+            # Determinar el tipo de archivo
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower()
+            if ext == '.xlsx':
+                file_type = 'excel'
+            elif ext == '.csv':
+                file_type = 'csv'
+            elif ext == '.json':
+                file_type = 'json'
+            else:
+                messagebox.showerror("Error", "Tipo de archivo no soportado.")
+                return
+
+            try:
+                self.db.import_clients(file_path, file_type)
+                messagebox.showinfo("Éxito", "Clientes importados correctamente.")
+                if hasattr(self, 'client_manager') and self.client_manager.winfo_exists():
+                    self.load_clients()
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al importar: {str(e)}")
+
+    def export_clients(self):
+        # Ventana para seleccionar la ubicación del archivo a exportar
+        file_path = filedialog.asksaveasfilename(title="Guardar clientes como",
+                                                 defaultextension=".xlsx",
+                                                 filetypes=[("Archivos Excel", "*.xlsx"),
+                                                            ("Archivos CSV", "*.csv"),
+                                                            ("Archivos JSON", "*.json")])
+        if file_path:
+            # Determinar el tipo de archivo
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower()
+            if ext == '.xlsx':
+                file_type = 'excel'
+            elif ext == '.csv':
+                file_type = 'csv'
+            elif ext == '.json':
+                file_type = 'json'
+            else:
+                messagebox.showerror("Error", "Tipo de archivo no soportado.")
+                return
+
+            try:
+                self.db.export_clients(file_path, file_type)
+                messagebox.showinfo("Éxito", "Clientes exportados correctamente.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al exportar: {str(e)}")
 
     def check_credentials(self):
         email = self.config_manager.get_email()
@@ -193,13 +252,107 @@ class Application(tk.Tk):
             messagebox.showerror("Error", f"Ocurrió un error: {str(e)}")
 
     def open_client_manager(self):
-        # [Código existente para el gestor de clientes]
-        # No es necesario cambiar esta parte
-        pass
+        # Implementación completa del gestor de clientes
+        self.client_manager = tk.Toplevel(self)
+        self.client_manager.title("Gestor de Clientes")
+        self.client_manager.geometry("600x400")
+        self.client_manager.configure(bg="#f0f4f7")
+
+        # Frame para la tabla
+        frame_gestion = ttk.Frame(self.client_manager)
+        frame_gestion.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Tabla para mostrar los clientes y sus correos
+        self.tree = ttk.Treeview(frame_gestion, columns=('Cliente', 'Correo'), show='headings')
+        self.tree.heading('Cliente', text='Cliente')
+        self.tree.heading('Correo', text='Correo')
+        self.tree.column('Cliente', width=250)
+        self.tree.column('Correo', width=330)
+        self.tree.pack(side=tk.LEFT, fill='both', expand=True)
+
+        # Scrollbar para la tabla
+        scrollbar = ttk.Scrollbar(frame_gestion, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill='y')
+
+        # Botones para editar correos
+        frame_botones = ttk.Frame(self.client_manager)
+        frame_botones.pack(pady=5)
+
+        boton_editar = ttk.Button(frame_botones, text="Editar Correo", command=self.editar_correo)
+        boton_editar.pack(side=tk.LEFT, padx=5)
+
+        # Cargar los clientes
+        self.load_clients()
 
     def load_client_data(self):
-        # [Código existente para cargar los clientes]
-        pass
+        # Cargar datos de clientes al iniciar la aplicación
+        if self.db:
+            # Si el gestor de clientes está abierto, cargar los clientes
+            if hasattr(self, 'client_manager') and self.client_manager.winfo_exists():
+                self.load_clients()
+
+    def load_clients(self):
+        if not self.db:
+            messagebox.showwarning("Advertencia", "No hay datos de clientes disponibles.")
+            return
+
+        # Limpiar la tabla
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        try:
+            clientes = self.db.get_all_clients()
+            for client_id, nombre, correo in clientes:
+                self.tree.insert('', tk.END, iid=client_id, values=(nombre, correo))
+        except Exception as e:
+            messagebox.showerror("Error", f"Ocurrió un error al cargar los clientes: {str(e)}")
+
+    def editar_correo(self):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
+            return
+
+        item = selected_item[0]
+        cliente = self.tree.item(item, 'values')[0]
+        correo_actual = self.tree.item(item, 'values')[1]
+
+        # Ventana para editar el correo
+        def guardar_cambio():
+            nuevo_correo = entrada_correo.get().strip()
+            if nuevo_correo == '':
+                messagebox.showwarning("Advertencia", "El correo no puede estar vacío.")
+                return
+            # Validar el formato del correo
+            email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+            if not re.match(email_pattern, nuevo_correo):
+                messagebox.showwarning("Advertencia", "Por favor, ingresa un correo electrónico válido.")
+                return
+            # Actualizar la base de datos
+            self.db.update_client_email(int(item), nuevo_correo)
+            # Actualizar la tabla
+            self.tree.item(item, values=(cliente, nuevo_correo))
+            ventana_editar.destroy()
+
+        ventana_editar = tk.Toplevel(self.client_manager)
+        ventana_editar.title(f"Editar Correo - {cliente}")
+        ventana_editar.geometry("400x150")
+        ventana_editar.configure(bg="#f0f4f7")
+
+        etiqueta = ttk.Label(ventana_editar, text=f"Editar correo para {cliente}:")
+        etiqueta.pack(pady=10)
+
+        entrada_correo = ttk.Entry(ventana_editar, width=50)
+        entrada_correo.insert(0, correo_actual)
+        entrada_correo.pack(pady=5)
+
+        boton_guardar = ttk.Button(ventana_editar, text="Guardar", command=guardar_cambio)
+        boton_guardar.pack(pady=10)
+
+        ventana_editar.transient(self.client_manager)
+        ventana_editar.grab_set()
+        self.client_manager.wait_window(ventana_editar)
 
     def on_closing(self):
         # Cerrar la conexión a la base de datos al cerrar la aplicación
