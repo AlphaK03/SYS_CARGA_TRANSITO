@@ -1,14 +1,12 @@
 # src/utils/config_manager.py
 import os
 import json
-import keyring
 
 class ConfigManager:
     """
     Clase para manejar la configuración de la aplicación.
     """
     CONFIG_FILE = 'data/config.json'
-    SERVICE_NAME = 'EmailSenderApp'  # Nombre del servicio para keyring
 
     def __init__(self):
         # Crear el directorio si no existe
@@ -21,6 +19,25 @@ class ConfigManager:
                 self.config = json.load(f)
         else:
             self.config = {}
+
+    def get_email_provider(self) -> str:
+        """
+        Obtiene el proveedor de correo electrónico almacenado.
+
+        Returns:
+            str: Proveedor de correo ('Gmail' o 'Microsoft'), por defecto 'Gmail' si no está configurado.
+        """
+        return self.config.get('email_provider', 'Gmail')
+
+    def set_email_provider(self, provider: str):
+        """
+        Establece el proveedor de correo electrónico y guarda la configuración.
+
+        Args:
+            provider (str): Proveedor de correo ('Gmail' o 'Microsoft').
+        """
+        self.config['email_provider'] = provider
+        self.save_config()
 
     def get_email(self) -> str:
         """
@@ -43,21 +60,22 @@ class ConfigManager:
 
     def get_app_password(self) -> str:
         """
-        Obtiene la contraseña de aplicación almacenada en keyring.
+        Obtiene la contraseña de aplicación almacenada.
 
         Returns:
-            str: Contraseña de aplicación o None si no está configurada.
+            str: Contraseña de aplicación o cadena vacía si no está configurada.
         """
-        return keyring.get_password(self.SERVICE_NAME, self.get_email())
+        return self.config.get('app_password', '')
 
     def set_app_password(self, password: str):
         """
-        Establece la contraseña de aplicación en keyring.
+        Establece la contraseña de aplicación y guarda la configuración.
 
         Args:
             password (str): Contraseña de aplicación.
         """
-        keyring.set_password(self.SERVICE_NAME, self.get_email(), password)
+        self.config['app_password'] = password
+        self.save_config()
 
     def save_config(self):
         """

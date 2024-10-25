@@ -10,7 +10,7 @@ from utils.config_manager import ConfigManager
 
 class EmailSender:
     """
-    Clase para enviar correos electrónicos con adjuntos.
+    Clase para enviar correos electrónicos con adjuntos para múltiples proveedores.
     """
 
     def __init__(self):
@@ -20,8 +20,20 @@ class EmailSender:
         self.config_manager = ConfigManager()
         self.user_email = self.config_manager.get_email()
         self.app_password = self.config_manager.get_app_password()
-        self.smtp_server = 'smtp.gmail.com'
-        self.smtp_port = 587
+
+    def get_smtp_details(self) -> Tuple[str, int]:
+        """
+        Determina los detalles del servidor SMTP en función del dominio del correo del remitente.
+
+        Returns:
+            Tuple[str, int]: Servidor SMTP y puerto.
+        """
+        if 'gmail.com' in self.user_email:
+            return 'smtp.gmail.com', 587
+        elif 'outlook.com' in self.user_email or 'hotmail.com' in self.user_email or 'office365.com' in self.user_email:
+            return 'smtp.office365.com', 587
+        else:
+            raise ValueError("Proveedor de correo no soportado.")
 
     def send_email(self, to_email: str, subject: str, html_content: str, attachment_path: str) -> Tuple[bool, str]:
         """
@@ -37,6 +49,9 @@ class EmailSender:
             Tuple[bool, str]: (Éxito, Mensaje de error si falla).
         """
         try:
+            # Obtener detalles del servidor SMTP
+            smtp_server, smtp_port = self.get_smtp_details()
+
             # Crear un mensaje de tipo "multipart"
             msg = MIMEMultipart()
             msg['Subject'] = subject
@@ -55,7 +70,7 @@ class EmailSender:
                 msg.attach(attachment)
 
             # Enviar el correo
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
                 server.starttls()
                 server.login(self.user_email, self.app_password)
                 server.send_message(msg)

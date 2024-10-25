@@ -1,3 +1,4 @@
+# src/database/client_database.py
 import os
 import sqlite3
 from typing import List, Optional, Tuple
@@ -26,71 +27,13 @@ class ClientDatabase:
         # Establecer la conexión a la base de datos
         try:
             self.connection = sqlite3.connect(self.db_path)
-            self.create_table()
+            self.create_tables()
         except sqlite3.OperationalError as e:
             raise Exception(f"No se pudo abrir la base de datos: {e}")
 
-
-    def import_clients(self, file_path: str, file_type: str):
+    def create_tables(self):
         """
-        Importa clientes desde un archivo especificado.
-
-        Args:
-            file_path (str): Ruta al archivo a importar.
-            file_type (str): Tipo de archivo ('excel', 'csv', 'json').
-        """
-        if file_type == 'excel':
-            df = pd.read_excel(file_path)
-        elif file_type == 'csv':
-            df = pd.read_csv(file_path)
-        elif file_type == 'json':
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-            df = pd.DataFrame(data)
-        else:
-            raise ValueError("Tipo de archivo no soportado.")
-
-        # Se espera que el DataFrame tenga columnas 'nombre' y 'correo'
-        if 'nombre' not in df.columns or 'correo' not in df.columns:
-            raise ValueError("El archivo debe contener las columnas 'nombre' y 'correo'.")
-
-        # Insertar o actualizar los registros
-        cursor = self.connection.cursor()
-        for _, row in df.iterrows():
-            nombre = row['nombre']
-            correo = row['correo']
-            cursor.execute('''
-                INSERT INTO clientes (nombre, correo)
-                VALUES (?, ?)
-                ON CONFLICT(nombre) DO UPDATE SET correo=excluded.correo
-            ''', (nombre, correo))
-        self.connection.commit()
-
-    def export_clients(self, file_path: str, file_type: str):
-        """
-        Exporta la lista de clientes a un archivo especificado.
-
-        Args:
-            file_path (str): Ruta al archivo de destino.
-            file_type (str): Tipo de archivo ('excel', 'csv', 'json').
-        """
-        cursor = self.connection.cursor()
-        cursor.execute('SELECT nombre, correo FROM clientes')
-        rows = cursor.fetchall()
-        df = pd.DataFrame(rows, columns=['nombre', 'correo'])
-
-        if file_type == 'excel':
-            df.to_excel(file_path, index=False)
-        elif file_type == 'csv':
-            df.to_csv(file_path, index=False)
-        elif file_type == 'json':
-            df.to_json(file_path, orient='records', indent=4)
-        else:
-            raise ValueError("Tipo de archivo no soportado.")
-
-    def create_table(self):
-        """
-        Crea la tabla de clientes si no existe.
+        Crea las tablas necesarias si no existen.
         """
         cursor = self.connection.cursor()
         cursor.execute('''
@@ -100,28 +43,115 @@ class ClientDatabase:
                 correo TEXT DEFAULT '(correo sin definir)'
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                alias TEXT NOT NULL,
+                FOREIGN KEY(client_id) REFERENCES clientes(id)
+            )
+        ''')
         self.connection.commit()
 
-    # [Resto de los métodos de la clase]
+    # Métodos para manejar clientes y aliases
 
-    def add_clients(self, clients: List[str]):
+    def add_client(self, nombre: str, correo: str = '(correo sin definir)'):
         """
-        Agrega nuevos clientes a la base de datos.
+        Agrega un nuevo cliente a la base de datos.
 
         Args:
-            clients (List[str]): Lista de nombres de clientes a agregar.
+            nombre (str): Nombre del cliente.
+            correo (str): Correo electrónico del cliente.
         """
         cursor = self.connection.cursor()
-        for client in clients:
-            try:
-                cursor.execute('''
-                    INSERT INTO clientes (nombre)
-                    VALUES (?)
-                ''', (client,))
-            except sqlite3.IntegrityError:
-                # El cliente ya existe, continuar
-                continue
+        cursor.execute('''
+            INSERT INTO clientes (nombre, correo)
+            VALUES (?, ?)
+        ''', (nombre, correo))
         self.connection.commit()
+
+    def update_client_name_and_email(self, client_id: int, nombre: str, correo: str):
+        """
+        Actualiza el nombre y el correo de un cliente.
+
+        Args:
+            client_id (int): ID del cliente.
+            nombre (str): Nuevo nombre del cliente.
+            correo (str): Nuevo correo electrónico del cliente.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            UPDATE clientes
+            SET nombre = ?, correo = ?
+            WHERE id = ?
+        ''', (nombre, correo, client_id))
+        self.connection.commit()
+
+    def delete_client(self, client_id: int):
+        """
+        Elimina un cliente y sus aliases de la base de datos.
+
+        Args:
+            client_id (int): ID del cliente.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('DELETE FROM aliases WHERE client_id = ?', (client_id,))
+        cursor.execute('DELETE FROM clientes WHERE id = ?', (client_id,))
+        self.connection.commit()
+
+    def get_client_by_id(self, client_id: int) -> Optional[Tuple[int, str, str]]:
+        """
+        Obtiene un cliente por su ID.
+
+        Args:
+            client_id (int): ID del cliente.
+
+        Returns:
+            Optional[Tuple[int, str, str]]: Tupla con (id, nombre, correo) o None si no se encuentra.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT id, nombre, correo FROM clientes WHERE id = ?', (client_id,))
+        return cursor.fetchone()
+
+    def add_alias(self, client_id: int, alias: str):
+        """
+        Agrega un alias a un cliente.
+
+        Args:
+            client_id (int): ID del cliente.
+            alias (str): Alias a agregar.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            INSERT INTO aliases (client_id, alias)
+            VALUES (?, ?)
+        ''', (client_id, alias))
+        self.connection.commit()
+
+    def remove_alias(self, alias_id: int):
+        """
+        Elimina un alias de la base de datos.
+
+        Args:
+            alias_id (int): ID del alias.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('DELETE FROM aliases WHERE id = ?', (alias_id,))
+        self.connection.commit()
+
+    def get_aliases_for_client(self, client_id: int) -> List[Tuple[int, str]]:
+        """
+        Obtiene los aliases de un cliente.
+
+        Args:
+            client_id (int): ID del cliente.
+
+        Returns:
+            List[Tuple[int, str]]: Lista de tuplas con (alias_id, alias).
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT id, alias FROM aliases WHERE client_id = ?', (client_id,))
+        return cursor.fetchall()
 
     def get_all_clients(self) -> List[Tuple[int, str, str]]:
         """
@@ -132,46 +162,6 @@ class ClientDatabase:
         """
         cursor = self.connection.cursor()
         cursor.execute('SELECT id, nombre, correo FROM clientes')
-        return cursor.fetchall()
-
-    def get_client_by_name(self, name: str) -> Optional[Tuple[int, str, str]]:
-        """
-        Obtiene un cliente por su nombre.
-
-        Args:
-            name (str): Nombre del cliente.
-
-        Returns:
-            Optional[Tuple[int, str, str]]: Tupla con (id, nombre, correo) o None si no se encuentra.
-        """
-        cursor = self.connection.cursor()
-        cursor.execute('SELECT id, nombre, correo FROM clientes WHERE nombre = ?', (name,))
-        return cursor.fetchone()
-
-    def update_client_email(self, client_id: int, email: str):
-        """
-        Actualiza el correo electrónico de un cliente.
-
-        Args:
-            client_id (int): ID del cliente.
-            email (str): Nuevo correo electrónico.
-        """
-        cursor = self.connection.cursor()
-        cursor.execute('UPDATE clientes SET correo = ? WHERE id = ?', (email, client_id))
-        self.connection.commit()
-
-    def get_clients_without_email(self) -> List[Tuple[int, str]]:
-        """
-        Obtiene una lista de clientes que no tienen correo asociado.
-
-        Returns:
-            List[Tuple[int, str]]: Lista de tuplas con (id, nombre).
-        """
-        cursor = self.connection.cursor()
-        cursor.execute('''
-            SELECT id, nombre FROM clientes
-            WHERE correo IS NULL OR correo = '' OR LOWER(TRIM(correo)) = '(correo sin definir)'
-        ''')
         return cursor.fetchall()
 
     def get_clients_with_email(self) -> List[Tuple[int, str, str]]:

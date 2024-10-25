@@ -10,37 +10,35 @@ from processing.file_processor import FileProcessor
 from database.client_database import ClientDatabase
 from utils.config_manager import ConfigManager
 
-
 class Application(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Gestor de Reportes y Correos a Clientes")
-        self.geometry("600x500")
+        self.geometry("800x600")
         self.configure(bg="#f0f4f7")  # Fondo de color pastel
         self.file_path = ''
         self.processor = None
         self.db = ClientDatabase()
         self.config_manager = ConfigManager()
         self.create_widgets()
-        self.load_client_data()  # Cargar datos de clientes al iniciar
         self.check_credentials()  # Verificar si las credenciales están configuradas
+
+
 
     def create_widgets(self):
         # Crear la barra de menú
         menu_bar = tk.Menu(self)
         self.config(menu=menu_bar)
 
-        # Menú "Archivo"
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="Cambiar correo de origen", command=self.open_config_window)
-        file_menu.add_command(label="Salir", command=self.on_closing)
-        menu_bar.add_cascade(label="Configuración", menu=file_menu)
+        # Menú "Configuración"
+        config_menu = tk.Menu(menu_bar, tearoff=0)
+        config_menu.add_command(label="Cambiar correo de origen", command=self.open_config_window)
+        config_menu.add_command(label="Salir", command=self.on_closing)
+        menu_bar.add_cascade(label="Configuración", menu=config_menu)
 
         # Menú "Gestión"
         gestion_menu = tk.Menu(menu_bar, tearoff=0)
         gestion_menu.add_command(label="Gestor de Clientes", command=self.open_client_manager)
-        gestion_menu.add_command(label="Importar Clientes", command=self.import_clients)
-        gestion_menu.add_command(label="Exportar Clientes", command=self.export_clients)
         menu_bar.add_cascade(label="Gestión", menu=gestion_menu)
 
         # Frame para seleccionar archivo
@@ -50,74 +48,23 @@ class Application(tk.Tk):
         etiqueta_archivo = ttk.Label(frame_archivo, text="Selecciona el archivo XLSX:")
         etiqueta_archivo.pack(side=tk.LEFT, padx=5)
 
-        self.entrada_archivo = ttk.Entry(frame_archivo, width=40)
+        self.entrada_archivo = ttk.Entry(frame_archivo, width=50)
         self.entrada_archivo.pack(side=tk.LEFT, padx=5)
 
         boton_seleccionar = ttk.Button(frame_archivo, text="Seleccionar archivo", command=self.seleccionar_archivo)
         boton_seleccionar.pack(side=tk.LEFT, padx=5)
 
-        # Botón para filtrar y generar reportes
-        boton_generar = ttk.Button(self, text="Generar Reportes y Enviar Correos", command=self.filtrar_generar_enviar)
-        boton_generar.pack(pady=10)
+        # Botones para filtrar/generar y enviar correos
+        frame_botones = ttk.Frame(self)
+        frame_botones.pack(pady=10)
+
+        boton_generar = ttk.Button(frame_botones, text="Generar Reportes", command=self.filtrar_generar)
+        boton_generar.pack(side=tk.LEFT, padx=5)
+
+        boton_enviar = ttk.Button(frame_botones, text="Enviar Correos", command=self.enviar_correos)
+        boton_enviar.pack(side=tk.LEFT, padx=5)
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-
-    def import_clients(self):
-        # Ventana para seleccionar el archivo a importar
-        file_path = filedialog.askopenfilename(title="Seleccionar archivo para importar",
-                                               filetypes=[("Todos los archivos", "*.*"),
-                                                          ("Archivos Excel", "*.xlsx"),
-                                                          ("Archivos CSV", "*.csv"),
-                                                          ("Archivos JSON", "*.json")])
-        if file_path:
-            # Determinar el tipo de archivo
-            _, ext = os.path.splitext(file_path)
-            ext = ext.lower()
-            if ext == '.xlsx':
-                file_type = 'excel'
-            elif ext == '.csv':
-                file_type = 'csv'
-            elif ext == '.json':
-                file_type = 'json'
-            else:
-                messagebox.showerror("Error", "Tipo de archivo no soportado.")
-                return
-
-            try:
-                self.db.import_clients(file_path, file_type)
-                messagebox.showinfo("Éxito", "Clientes importados correctamente.")
-                if hasattr(self, 'client_manager') and self.client_manager.winfo_exists():
-                    self.load_clients()
-            except Exception as e:
-                messagebox.showerror("Error", f"Ocurrió un error al importar: {str(e)}")
-
-    def export_clients(self):
-        # Ventana para seleccionar la ubicación del archivo a exportar
-        file_path = filedialog.asksaveasfilename(title="Guardar clientes como",
-                                                 defaultextension=".xlsx",
-                                                 filetypes=[("Archivos Excel", "*.xlsx"),
-                                                            ("Archivos CSV", "*.csv"),
-                                                            ("Archivos JSON", "*.json")])
-        if file_path:
-            # Determinar el tipo de archivo
-            _, ext = os.path.splitext(file_path)
-            ext = ext.lower()
-            if ext == '.xlsx':
-                file_type = 'excel'
-            elif ext == '.csv':
-                file_type = 'csv'
-            elif ext == '.json':
-                file_type = 'json'
-            else:
-                messagebox.showerror("Error", "Tipo de archivo no soportado.")
-                return
-
-            try:
-                self.db.export_clients(file_path, file_type)
-                messagebox.showinfo("Éxito", "Clientes exportados correctamente.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Ocurrió un error al exportar: {str(e)}")
 
     def check_credentials(self):
         email = self.config_manager.get_email()
@@ -186,12 +133,20 @@ class Application(tk.Tk):
             self.entrada_archivo.delete(0, tk.END)
             self.entrada_archivo.insert(0, self.file_path)
 
-    def filtrar_generar_enviar(self):
+    def filtrar_generar(self):
         if not self.file_path:
             messagebox.showwarning("Advertencia", "Por favor, selecciona un archivo.")
             return
 
-        # Verificar credenciales
+        try:
+            self.processor = FileProcessor(self.file_path)
+            clientes_procesados = self.processor.process_file()
+            messagebox.showinfo("Éxito", "Se generaron los reportes exitosamente.")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Ocurrió un error: {str(e)}")
+
+    def enviar_correos(self):
         email = self.config_manager.get_email()
         app_password = self.config_manager.get_app_password()
         if not email or not app_password:
@@ -200,24 +155,11 @@ class Application(tk.Tk):
             return
 
         try:
-            self.processor = FileProcessor(self.file_path)
-            clientes_unicos = self.processor.process_file()
+            if not self.processor:
+                messagebox.showwarning("Advertencia", "Primero debes generar los reportes.")
+                return
 
-            # Cargar los clientes en el gestor si está abierto
-            if hasattr(self, 'client_manager') and self.client_manager.winfo_exists():
-                self.load_clients()
-
-            # Obtener clientes sin correo
-            clientes_sin_correo = self.processor.get_clients_without_email()
-
-            if clientes_sin_correo:
-                messagebox.showwarning(
-                    "Clientes sin correo",
-                    f"Los siguientes clientes no tienen correo asociado y se omitieron:\n{', '.join(clientes_sin_correo)}"
-                )
-
-            # Obtener clientes con correo
-            clientes_con_correo = self.processor.get_clients_with_email()
+            clientes_con_correo = self.db.get_clients_with_email()
 
             if not clientes_con_correo:
                 messagebox.showinfo("Información", "No hay clientes con correos asociados para enviar.")
@@ -230,12 +172,7 @@ class Application(tk.Tk):
                 if archivo_path:
                     asunto = f"Reporte para {cliente}"
                     cuerpo_html = f"<h1>Estimado {cliente}</h1><p>Adjunto encontrará su reporte.</p>"
-                    success, msg = sender.send_email(
-                        correo,
-                        asunto,
-                        cuerpo_html,
-                        archivo_path
-                    )
+                    success, msg = sender.send_email(correo, asunto, cuerpo_html, archivo_path)
                     if not success:
                         errores_envio.append(f"Error al enviar a {cliente} ({correo}): {msg}")
                 else:
@@ -246,106 +183,174 @@ class Application(tk.Tk):
             else:
                 messagebox.showinfo("Éxito", "Se enviaron los correos exitosamente.")
 
-            self.processor.close()
-
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error: {str(e)}")
 
     def open_client_manager(self):
-        # Implementación completa del gestor de clientes
+        # Ventana del gestor de clientes
         self.client_manager = tk.Toplevel(self)
         self.client_manager.title("Gestor de Clientes")
-        self.client_manager.geometry("600x400")
+        self.client_manager.geometry("800x500")
         self.client_manager.configure(bg="#f0f4f7")
 
-        # Frame para la tabla
-        frame_gestion = ttk.Frame(self.client_manager)
-        frame_gestion.pack(fill='both', expand=True, padx=10, pady=10)
+        # Frame para la lista de clientes
+        frame_clientes = ttk.Frame(self.client_manager)
+        frame_clientes.pack(side=tk.LEFT, fill='both', expand=True, padx=10, pady=10)
 
-        # Tabla para mostrar los clientes y sus correos
-        self.tree = ttk.Treeview(frame_gestion, columns=('Cliente', 'Correo'), show='headings')
-        self.tree.heading('Cliente', text='Cliente')
-        self.tree.heading('Correo', text='Correo')
-        self.tree.column('Cliente', width=250)
-        self.tree.column('Correo', width=330)
-        self.tree.pack(side=tk.LEFT, fill='both', expand=True)
+        # Tabla para mostrar los clientes
+        self.tree_clients = ttk.Treeview(frame_clientes, columns=('Cliente', 'Correo'), show='headings', selectmode='browse')
+        self.tree_clients.heading('Cliente', text='Cliente')
+        self.tree_clients.heading('Correo', text='Correo')
+        self.tree_clients.column('Cliente', width=200)
+        self.tree_clients.column('Correo', width=250)
+        self.tree_clients.pack(fill='both', expand=True)
 
-        # Scrollbar para la tabla
-        scrollbar = ttk.Scrollbar(frame_gestion, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscroll=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill='y')
+        # Scrollbar para la tabla de clientes
+        scrollbar_clients = ttk.Scrollbar(frame_clientes, orient=tk.VERTICAL, command=self.tree_clients.yview)
+        self.tree_clients.configure(yscroll=scrollbar_clients.set)
+        scrollbar_clients.pack(side=tk.RIGHT, fill='y')
 
-        # Botones para editar correos
-        frame_botones = ttk.Frame(self.client_manager)
-        frame_botones.pack(pady=5)
+        # Frame para los botones de clientes
+        frame_botones_clientes = ttk.Frame(self.client_manager)
+        frame_botones_clientes.pack(pady=5)
 
-        boton_editar = ttk.Button(frame_botones, text="Editar Correo", command=self.editar_correo)
-        boton_editar.pack(side=tk.LEFT, padx=5)
+        boton_agregar_cliente = ttk.Button(frame_botones_clientes, text="Agregar Cliente", command=self.agregar_cliente)
+        boton_agregar_cliente.pack(side=tk.LEFT, padx=5)
+
+        boton_editar_cliente = ttk.Button(frame_botones_clientes, text="Editar Cliente", command=self.editar_cliente)
+        boton_editar_cliente.pack(side=tk.LEFT, padx=5)
+
+        boton_eliminar_cliente = ttk.Button(frame_botones_clientes, text="Eliminar Cliente", command=self.eliminar_cliente)
+        boton_eliminar_cliente.pack(side=tk.LEFT, padx=5)
+
+        # Frame para la lista de aliases
+        frame_aliases = ttk.Frame(self.client_manager)
+        frame_aliases.pack(side=tk.RIGHT, fill='both', expand=True, padx=10, pady=10)
+
+        # Etiqueta para aliases
+        self.label_aliases = ttk.Label(frame_aliases, text="Aliases del Cliente Seleccionado:")
+        self.label_aliases.pack()
+
+        # Lista para mostrar los aliases
+        self.listbox_aliases = tk.Listbox(frame_aliases)
+        self.listbox_aliases.pack(fill='both', expand=True)
+
+        # Frame para los botones de aliases
+        frame_botones_aliases = ttk.Frame(self.client_manager)
+        frame_botones_aliases.pack(pady=5)
+
+        boton_agregar_alias = ttk.Button(frame_botones_aliases, text="Agregar Alias", command=self.agregar_alias)
+        boton_agregar_alias.pack(side=tk.LEFT, padx=5)
+
+        boton_eliminar_alias = ttk.Button(frame_botones_aliases, text="Eliminar Alias", command=self.eliminar_alias)
+        boton_eliminar_alias.pack(side=tk.LEFT, padx=5)
 
         # Cargar los clientes
         self.load_clients()
 
-    def load_client_data(self):
-        # Cargar datos de clientes al iniciar la aplicación
-        if self.db:
-            # Si el gestor de clientes está abierto, cargar los clientes
-            if hasattr(self, 'client_manager') and self.client_manager.winfo_exists():
-                self.load_clients()
+        # Evento para cuando se selecciona un cliente
+        self.tree_clients.bind('<<TreeviewSelect>>', self.on_client_select)
 
     def load_clients(self):
-        if not self.db:
-            messagebox.showwarning("Advertencia", "No hay datos de clientes disponibles.")
-            return
-
-        # Limpiar la tabla
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        # Limpiar la tabla de clientes
+        for item in self.tree_clients.get_children():
+            self.tree_clients.delete(item)
 
         try:
             clientes = self.db.get_all_clients()
             for client_id, nombre, correo in clientes:
-                self.tree.insert('', tk.END, iid=client_id, values=(nombre, correo))
+                self.tree_clients.insert('', tk.END, iid=client_id, values=(nombre, correo))
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error al cargar los clientes: {str(e)}")
 
-    def editar_correo(self):
-        selected_item = self.tree.selection()
+    def on_client_select(self, event):
+        selected_item = self.tree_clients.selection()
+        if selected_item:
+            item = selected_item[0]
+            client_id = int(item)
+            aliases = self.db.get_aliases_for_client(client_id)
+            # Limpiar la lista de aliases
+            self.listbox_aliases.delete(0, tk.END)
+            # Agregar los aliases a la lista
+            for alias_id, alias in aliases:
+                self.listbox_aliases.insert(tk.END, f"{alias_id}:{alias}")
+
+    def agregar_cliente(self):
+        def guardar_cliente():
+            nombre = entrada_nombre.get().strip()
+            correo = entrada_correo.get().strip()
+            if not nombre:
+                messagebox.showwarning("Advertencia", "El nombre del cliente no puede estar vacío.")
+                return
+            try:
+                self.db.add_client(nombre, correo)
+                self.load_clients()
+                ventana_agregar.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al agregar el cliente: {str(e)}")
+
+        ventana_agregar = tk.Toplevel(self.client_manager)
+        ventana_agregar.title("Agregar Cliente")
+        ventana_agregar.geometry("400x200")
+        ventana_agregar.configure(bg="#f0f4f7")
+
+        etiqueta_nombre = ttk.Label(ventana_agregar, text="Nombre del Cliente:")
+        etiqueta_nombre.pack(pady=5)
+        entrada_nombre = ttk.Entry(ventana_agregar, width=50)
+        entrada_nombre.pack()
+
+        etiqueta_correo = ttk.Label(ventana_agregar, text="Correo Electrónico:")
+        etiqueta_correo.pack(pady=5)
+        entrada_correo = ttk.Entry(ventana_agregar, width=50)
+        entrada_correo.pack()
+
+        boton_guardar = ttk.Button(ventana_agregar, text="Guardar", command=guardar_cliente)
+        boton_guardar.pack(pady=10)
+
+        ventana_agregar.transient(self.client_manager)
+        ventana_agregar.grab_set()
+        self.client_manager.wait_window(ventana_agregar)
+
+    def editar_cliente(self):
+        selected_item = self.tree_clients.selection()
         if not selected_item:
             messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
             return
 
         item = selected_item[0]
-        cliente = self.tree.item(item, 'values')[0]
-        correo_actual = self.tree.item(item, 'values')[1]
+        client_id = int(item)
+        cliente = self.tree_clients.item(item, 'values')[0]
+        correo_actual = self.tree_clients.item(item, 'values')[1]
 
-        # Ventana para editar el correo
         def guardar_cambio():
+            nuevo_nombre = entrada_nombre.get().strip()
             nuevo_correo = entrada_correo.get().strip()
-            if nuevo_correo == '':
-                messagebox.showwarning("Advertencia", "El correo no puede estar vacío.")
+            if not nuevo_nombre:
+                messagebox.showwarning("Advertencia", "El nombre del cliente no puede estar vacío.")
                 return
-            # Validar el formato del correo
-            email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-            if not re.match(email_pattern, nuevo_correo):
-                messagebox.showwarning("Advertencia", "Por favor, ingresa un correo electrónico válido.")
-                return
-            # Actualizar la base de datos
-            self.db.update_client_email(int(item), nuevo_correo)
-            # Actualizar la tabla
-            self.tree.item(item, values=(cliente, nuevo_correo))
-            ventana_editar.destroy()
+            try:
+                self.db.update_client_name_and_email(client_id, nuevo_nombre, nuevo_correo)
+                self.load_clients()
+                ventana_editar.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al actualizar el cliente: {str(e)}")
 
         ventana_editar = tk.Toplevel(self.client_manager)
-        ventana_editar.title(f"Editar Correo - {cliente}")
-        ventana_editar.geometry("400x150")
+        ventana_editar.title(f"Editar Cliente - {cliente}")
+        ventana_editar.geometry("400x200")
         ventana_editar.configure(bg="#f0f4f7")
 
-        etiqueta = ttk.Label(ventana_editar, text=f"Editar correo para {cliente}:")
-        etiqueta.pack(pady=10)
+        etiqueta_nombre = ttk.Label(ventana_editar, text="Nombre del Cliente:")
+        etiqueta_nombre.pack(pady=5)
+        entrada_nombre = ttk.Entry(ventana_editar, width=50)
+        entrada_nombre.insert(0, cliente)
+        entrada_nombre.pack()
 
+        etiqueta_correo = ttk.Label(ventana_editar, text="Correo Electrónico:")
+        etiqueta_correo.pack(pady=5)
         entrada_correo = ttk.Entry(ventana_editar, width=50)
         entrada_correo.insert(0, correo_actual)
-        entrada_correo.pack(pady=5)
+        entrada_correo.pack()
 
         boton_guardar = ttk.Button(ventana_editar, text="Guardar", command=guardar_cambio)
         boton_guardar.pack(pady=10)
@@ -353,6 +358,80 @@ class Application(tk.Tk):
         ventana_editar.transient(self.client_manager)
         ventana_editar.grab_set()
         self.client_manager.wait_window(ventana_editar)
+
+    def eliminar_cliente(self):
+        selected_item = self.tree_clients.selection()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
+            return
+
+        item = selected_item[0]
+        client_id = int(item)
+        cliente = self.tree_clients.item(item, 'values')[0]
+
+        respuesta = messagebox.askyesno("Confirmar", f"¿Estás seguro de eliminar el cliente '{cliente}' y todos sus aliases?")
+        if respuesta:
+            try:
+                self.db.delete_client(client_id)
+                self.load_clients()
+                self.listbox_aliases.delete(0, tk.END)
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al eliminar el cliente: {str(e)}")
+
+    def agregar_alias(self):
+        selected_item = self.tree_clients.selection()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
+            return
+
+        item = selected_item[0]
+        client_id = int(item)
+
+        def guardar_alias():
+            nuevo_alias = entrada_alias.get().strip()
+            if not nuevo_alias:
+                messagebox.showwarning("Advertencia", "El alias no puede estar vacío.")
+                return
+            try:
+                self.db.add_alias(client_id, nuevo_alias)
+                self.on_client_select(None)
+                ventana_alias.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al agregar el alias: {str(e)}")
+
+        ventana_alias = tk.Toplevel(self.client_manager)
+        ventana_alias.title("Agregar Alias")
+        ventana_alias.geometry("400x150")
+        ventana_alias.configure(bg="#f0f4f7")
+
+        etiqueta_alias = ttk.Label(ventana_alias, text="Nuevo Alias:")
+        etiqueta_alias.pack(pady=5)
+        entrada_alias = ttk.Entry(ventana_alias, width=50)
+        entrada_alias.pack()
+
+        boton_guardar = ttk.Button(ventana_alias, text="Guardar", command=guardar_alias)
+        boton_guardar.pack(pady=10)
+
+        ventana_alias.transient(self.client_manager)
+        ventana_alias.grab_set()
+        self.client_manager.wait_window(ventana_alias)
+
+    def eliminar_alias(self):
+        selected_alias = self.listbox_aliases.curselection()
+        if not selected_alias:
+            messagebox.showwarning("Advertencia", "Por favor, selecciona un alias de la lista.")
+            return
+
+        alias_item = self.listbox_aliases.get(selected_alias[0])
+        alias_id = int(alias_item.split(':')[0])
+
+        respuesta = messagebox.askyesno("Confirmar", f"¿Estás seguro de eliminar el alias '{alias_item.split(':')[1]}'?")
+        if respuesta:
+            try:
+                self.db.remove_alias(alias_id)
+                self.on_client_select(None)
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al eliminar el alias: {str(e)}")
 
     def on_closing(self):
         # Cerrar la conexión a la base de datos al cerrar la aplicación

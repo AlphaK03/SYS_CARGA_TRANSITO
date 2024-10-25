@@ -1,6 +1,8 @@
 # src/processing/file_processor.py
 import os
 import pandas as pd
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill
 from typing import List, Optional
 
 from database.client_database import ClientDatabase
@@ -26,53 +28,90 @@ class FileProcessor:
         Procesa el archivo Excel, genera reportes separados por cliente y actualiza la base de datos de clientes.
 
         Returns:
-            List[str]: Lista de clientes únicos encontrados en el archivo.
+            List[str]: Lista de nombres de clientes procesados.
         """
-        # Leer el archivo Excel con la fila correcta como encabezado
+        # Leer el archivo Excel desde la hoja "Report SI SYSTEM - ASW", comenzando en la fila 8
         df = pd.read_excel(self.file_path, sheet_name='Report SI SYSTEM - Customers', header=7)
+
         # Remover espacios en blanco de los nombres de las columnas
         df.columns = df.columns.str.strip()
 
         # Verificar si 'Consignee' está en las columnas
         if 'Consignee' not in df.columns:
-            raise ValueError(
-                f"La columna 'Consignee' no se encontró. Las columnas disponibles son: {df.columns.tolist()}")
+            raise ValueError("La columna 'Consignee' no se encontró.")
 
-        # Filtrar por clientes únicos en la columna 'Consignee'
-        clientes_unicos = df['Consignee'].dropna().unique().tolist()
+        # Obtener los clientes registrados y sus aliases
+        clients = self.db.get_all_clients()
+        clients_dict = {}
+        for client_id, nombre, correo in clients:
+            aliases = self.db.get_aliases_for_client(client_id)
+            alias_list = [alias for alias_id, alias in aliases]
+            clients_dict[client_id] = {
+                'nombre': nombre,
+                'correo': correo,
+                'aliases': alias_list
+            }
 
-        # Crear un directorio para guardar los archivos
+        if not clients_dict:
+            raise ValueError("No hay clientes registrados en la base de datos.")
+
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Crear un archivo separado por cada cliente
-        for cliente in clientes_unicos:
-            df_cliente = df[df['Consignee'] == cliente]
-            output_file = os.path.join(self.output_dir, f'{cliente}.xlsx')
-            df_cliente.to_excel(output_file, index=False)
+        for client_id, client_data in clients_dict.items():
+            nombre = client_data['nombre']
+            aliases = client_data['aliases']
 
-        # Actualizar la base de datos de clientes
-        self.db.add_clients(clientes_unicos)
+            if not aliases:
+                continue  # Si el cliente no tiene aliases, continuar
 
-        return clientes_unicos
+            # Filtrar los datos que coincidan con cualquiera de los aliases
+            df_cliente = df[df['Consignee'].isin(aliases)]
 
-    def get_clients_without_email(self) -> List[str]:
+            if df_cliente.empty:
+                continue  # Si no hay datos, continuar
+
+            output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+
+            # Crear el archivo Excel con formato
+            self._save_excel_with_format(df_cliente, output_file)
+
+        return [client_data['nombre'] for client_id, client_data in clients_dict.items()]
+
+    def _save_excel_with_format(self, df_cliente: pd.DataFrame, output_file: str):
         """
-        Obtiene una lista de nombres de clientes que no tienen correo asociado.
+        Guarda el DataFrame en un archivo Excel con formato personalizado.
 
-        Returns:
-            List[str]: Lista de nombres de clientes sin correo.
+        Args:
+            df_cliente (pd.DataFrame): DataFrame del cliente a guardar.
+            output_file (str): Ruta del archivo Excel a generar.
         """
-        clients = self.db.get_clients_without_email()
-        return [client[1] for client in clients]  # client[1] es el nombre
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            df_cliente.to_excel(writer, index=False, startrow=7, sheet_name='Clientes')
 
-    def get_clients_with_email(self) -> List[tuple]:
-        """
-        Obtiene una lista de clientes con correo asociado.
+            # Obtener el workbook y el worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Clientes']
 
-        Returns:
-            List[tuple]: Lista de tuplas (id, nombre, correo).
-        """
-        return self.db.get_clients_with_email()
+            # Ajustar el ancho de columnas
+            for col_num, column in enumerate(df_cliente.columns, 1):
+                max_length = df_cliente[column].astype(str).map(len).max() + 2
+                worksheet.column_dimensions[get_column_letter(col_num)].width = max(max_length, 15)
+
+            # Aplicar color de fondo en la fila de encabezado
+            header_fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
+            for cell in worksheet[8]:  # La fila 8, ya que los datos empiezan en la fila 8 después del encabezado
+                cell.fill = header_fill
+                cell.font = Font(bold=True, color='FFFFFF')
+
+            # Ajustar el ancho de la columna "Consignee" si existe
+            if 'Consignee' in df_cliente.columns:
+                consignee_col = df_cliente.columns.get_loc('Consignee') + 1
+                worksheet.column_dimensions[get_column_letter(consignee_col)].width = 30
+
+            # Aplicar el formato de fuente a las celdas de datos
+            for row in worksheet.iter_rows(min_row=8, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
+                for cell in row:
+                    cell.font = Font(name='Calibri')
 
     def get_client_file(self, cliente: str) -> Optional[str]:
         """
