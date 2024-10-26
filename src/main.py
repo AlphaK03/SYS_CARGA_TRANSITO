@@ -1,9 +1,11 @@
-# src/main.py
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# src/main.py
+# Agregar la carpeta src al PYTHONPATH para permitir la importación
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.join(current_dir, 'src')
+sys.path.insert(0, src_dir)
+
 from gui.app import Application
 
 if __name__ == '__main__':

@@ -83,3 +83,39 @@ class ConfigManager:
         """
         with open(self.CONFIG_FILE, 'w') as f:
             json.dump(self.config, f)
+
+# Métodos para SharePoint
+    def get_sharepoint_site_url(self) -> str:
+        return self.config.get('sharepoint_site_url', '')
+
+    def set_sharepoint_site_url(self, site_url: str):
+        self.config['sharepoint_site_url'] = site_url
+        self.save_config()
+
+    def get_sharepoint_username(self) -> str:
+        return self.config.get('sharepoint_username', '')
+
+    def set_sharepoint_username(self, username: str):
+        self.config['sharepoint_username'] = username
+        self.save_config()
+
+    def get_sharepoint_password(self) -> str:
+        return self.config.get('sharepoint_password', '')
+
+    def set_sharepoint_password(self, password: str):
+        self.config['sharepoint_password'] = password
+        self.save_config()
+
+    def get_sharepoint_file_url(self) -> str:
+        return self.config.get('sharepoint_file_url', '')
+
+    def set_sharepoint_file_url(self, file_url: str):
+        self.config['sharepoint_file_url'] = file_url
+        self.save_config()
+
+    def save_config(self):
+        """
+        Guarda la configuración en el archivo JSON.
+        """
+        with open(self.CONFIG_FILE, 'w') as f:
+            json.dump(self.config, f)

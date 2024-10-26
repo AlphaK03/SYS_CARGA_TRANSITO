@@ -1,27 +1,99 @@
 # src/processing/file_processor.py
+
 import os
 import pandas as pd
+from office365.runtime.auth.authentication_context import AuthenticationContext
+from office365.sharepoint.client_context import ClientContext
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill
 from typing import List, Optional
+import win32com.client  # Importar para interactuar con Excel
 
 from database.client_database import ClientDatabase
+from utils.config_manager import ConfigManager
+
 
 class FileProcessor:
     """
     Clase para procesar archivos Excel y generar reportes por cliente, y manejar la base de datos de clientes.
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, sharepoint_file_url: str):
         """
         Inicializa una instancia de FileProcessor.
 
         Args:
-            file_path (str): Ruta al archivo Excel a procesar.
+            sharepoint_file_url (str): Ruta relativa al archivo en SharePoint.
         """
-        self.file_path = file_path
+        self.sharepoint_file_url = sharepoint_file_url
         self.output_dir = os.path.join('data', 'Clientes_Separados')
         self.db = ClientDatabase()
+        self.config_manager = ConfigManager()
+        self.ctx = None  # SharePoint context
+        self.local_file_path = None  # Ruta al archivo descargado
+
+    def authenticate_sharepoint(self):
+        """
+        Autentica en SharePoint y crea el contexto.
+        """
+        site_url = self.config_manager.get_sharepoint_site_url()
+        username = self.config_manager.get_sharepoint_username()
+        password = self.config_manager.get_sharepoint_password()
+
+        if not site_url or not username or not password:
+            raise ValueError("Las credenciales de SharePoint no están configuradas.")
+
+        ctx_auth = AuthenticationContext(site_url)
+        if ctx_auth.acquire_token_for_user(username, password):
+            self.ctx = ClientContext(site_url, ctx_auth)
+        else:
+            raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
+
+    def download_file(self) -> str:
+        """
+        Descarga el archivo de SharePoint y lo guarda en una ubicación temporal.
+
+        Returns:
+            str: Ruta al archivo descargado localmente.
+        """
+        if not self.ctx:
+            self.authenticate_sharepoint()
+
+        # Crear carpeta temporal si no existe
+        os.makedirs('data/temp', exist_ok=True)
+        file_name = os.path.basename(self.sharepoint_file_url)
+        self.local_file_path = os.path.join('data/temp', file_name)
+
+        with open(self.local_file_path, "wb") as local_file:
+            file = self.ctx.web.get_file_by_server_relative_url(self.sharepoint_file_url)
+            file.download(local_file)
+            self.ctx.execute_query()
+        return self.local_file_path
+
+    def run_macro(self):
+        """
+        Ejecuta la macro 'ActualizarTodo' en el archivo Excel.
+        """
+        global macro_name
+        if not self.local_file_path:
+            raise Exception("El archivo no ha sido descargado aún.")
+
+        excel_app = win32com.client.Dispatch("Excel.Application")
+        excel_app.Visible = False
+        excel_app.DisplayAlerts = False
+
+        workbook = excel_app.Workbooks.Open(os.path.abspath(self.local_file_path), ReadOnly=False)
+
+        try:
+            macro_name = 'ActualizarPBI'
+            excel_app.Run(f"'{workbook.Name}'!{macro_name}")
+        except Exception as e:
+            workbook.Close(SaveChanges=False)
+            excel_app.Quit()
+            raise Exception(f"Error al ejecutar la macro '{macro_name}': {str(e)}")
+
+        workbook.Close(SaveChanges=True)  # Guardar los cambios si la macro modifica el archivo
+        excel_app.Quit()
 
     def process_file(self) -> List[str]:
         """
@@ -30,8 +102,8 @@ class FileProcessor:
         Returns:
             List[str]: Lista de nombres de clientes procesados.
         """
-        # Leer el archivo Excel desde la hoja "Report SI SYSTEM - ASW", comenzando en la fila 8
-        df = pd.read_excel(self.file_path, sheet_name='Report SI SYSTEM - Customers', header=7)
+        # Leer el archivo Excel desde la hoja correspondiente
+        df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=6)
 
         # Remover espacios en blanco de los nombres de las columnas
         df.columns = df.columns.str.strip()
