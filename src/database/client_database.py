@@ -28,13 +28,12 @@ class ClientDatabase:
         try:
             self.connection = sqlite3.connect(self.db_path)
             self.create_tables()
+            self.initialize_default_list()
+
         except sqlite3.OperationalError as e:
             raise Exception(f"No se pudo abrir la base de datos: {e}")
 
     def create_tables(self):
-        """
-        Crea las tablas necesarias si no existen.
-        """
         cursor = self.connection.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS clientes (
@@ -49,6 +48,23 @@ class ClientDatabase:
                 client_id INTEGER NOT NULL,
                 alias TEXT NOT NULL,
                 FOREIGN KEY(client_id) REFERENCES clientes(id)
+            )
+        ''')
+        # Nueva tabla 'listas'
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS listas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT UNIQUE NOT NULL
+            )
+        ''')
+        # Nueva tabla 'client_list' para la relación muchos a muchos
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS client_list (
+                client_id INTEGER NOT NULL,
+                list_id INTEGER NOT NULL,
+                FOREIGN KEY(client_id) REFERENCES clientes(id),
+                FOREIGN KEY(list_id) REFERENCES listas(id),
+                PRIMARY KEY (client_id, list_id)
             )
         ''')
         self.connection.commit()
@@ -89,13 +105,14 @@ class ClientDatabase:
 
     def delete_client(self, client_id: int):
         """
-        Elimina un cliente y sus aliases de la base de datos.
+        Elimina un cliente, sus aliases y sus asociaciones en listas.
 
         Args:
             client_id (int): ID del cliente.
         """
         cursor = self.connection.cursor()
         cursor.execute('DELETE FROM aliases WHERE client_id = ?', (client_id,))
+        cursor.execute('DELETE FROM client_list WHERE client_id = ?', (client_id,))
         cursor.execute('DELETE FROM clientes WHERE id = ?', (client_id,))
         self.connection.commit()
 
@@ -183,3 +200,108 @@ class ClientDatabase:
         Cierra la conexión a la base de datos.
         """
         self.connection.close()
+
+    # Métodos para manejar listas
+
+    def add_list(self, nombre_lista: str):
+        """
+        Agrega una nueva lista a la base de datos.
+
+        Args:
+            nombre_lista (str): Nombre de la lista.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            INSERT INTO listas (nombre)
+            VALUES (?)
+        ''', (nombre_lista,))
+        self.connection.commit()
+
+    def delete_list(self, list_id: int):
+        """
+        Elimina una lista y sus asociaciones.
+
+        Args:
+            list_id (int): ID de la lista.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('DELETE FROM client_list WHERE list_id = ?', (list_id,))
+        cursor.execute('DELETE FROM listas WHERE id = ?', (list_id,))
+        self.connection.commit()
+
+    def get_all_lists(self) -> List[Tuple[int, str]]:
+        """
+        Obtiene todas las listas.
+
+        Returns:
+            List[Tuple[int, str]]: Lista de tuplas con (id, nombre).
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT id, nombre FROM listas')
+        return cursor.fetchall()
+
+    def add_client_to_list(self, client_id: int, list_id: int):
+        """
+        Asocia un cliente a una lista.
+
+        Args:
+            client_id (int): ID del cliente.
+            list_id (int): ID de la lista.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            INSERT INTO client_list (client_id, list_id)
+            VALUES (?, ?)
+        ''', (client_id, list_id))
+        self.connection.commit()
+
+    def remove_client_from_list(self, client_id: int, list_id: int):
+        """
+        Elimina la asociación de un cliente con una lista.
+
+        Args:
+            client_id (int): ID del cliente.
+            list_id (int): ID de la lista.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            DELETE FROM client_list
+            WHERE client_id = ? AND list_id = ?
+        ''', (client_id, list_id))
+        self.connection.commit()
+
+    def get_clients_by_list(self, list_id: int) -> List[Tuple[int, str, str]]:
+        """
+        Obtiene los clientes asociados a una lista.
+
+        Args:
+            list_id (int): ID de la lista.
+
+        Returns:
+            List[Tuple[int, str, str]]: Lista de tuplas con (id, nombre, correo).
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            SELECT c.id, c.nombre, c.correo
+            FROM clientes c
+            INNER JOIN client_list cl ON c.id = cl.client_id
+            WHERE cl.list_id = ?
+        ''', (list_id,))
+        return cursor.fetchall()
+
+    def get_client_id_by_name(self, nombre: str) -> Optional[int]:
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT id FROM clientes WHERE nombre = ?', (nombre,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def initialize_default_list(self):
+        """
+        Inicializa la lista 'Predeterminada' si no existe.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT id FROM listas WHERE nombre = ?', ('Predeterminada',))
+        result = cursor.fetchone()
+        if not result:
+            self.add_list('Predeterminada')
+        self.connection.commit()
