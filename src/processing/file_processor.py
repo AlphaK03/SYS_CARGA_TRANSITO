@@ -1,30 +1,72 @@
 # src/processing/file_processor.py
 
 import os
+import sys
+import win32com.client
 import pandas as pd
 from office365.runtime.auth.authentication_context import AuthenticationContext
 from office365.sharepoint.client_context import ClientContext
-from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill
 from typing import List, Optional
+from openpyxl import load_workbook
 import win32com.client  # Importar para interactuar con Excel
+import time
 
 from database.client_database import ClientDatabase
 from utils.config_manager import ConfigManager
 
+def get_resource_path(relative_path):
+    """
+    Obtiene la ruta del recurso empaquetado o del entorno de desarrollo.
+    """
+    # Si está empaquetado, sys._MEIPASS estará disponible
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
+
+def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output_file: str):
+    """
+    Guarda el DataFrame en una copia de la plantilla de Excel,
+    agregando los datos a partir de la fila 5.
+
+    Args:
+        df_cliente (pd.DataFrame): DataFrame del cliente a guardar.
+        template_path (str): Ruta de la plantilla de Excel.
+        output_file (str): Ruta del archivo Excel a generar.
+    """
+    # Cargar la plantilla
+    workbook = load_workbook(template_path)
+    worksheet = workbook.active  # Suponiendo que la plantilla tiene una sola hoja
+
+    # Escribir los nombres de las columnas en la fila 4 (encabezado)
+    for col_idx, column_name in enumerate(df_cliente.columns, start=1):
+        cell = worksheet.cell(row=4, column=col_idx)
+        cell.value = column_name
+        # Aplicar formato al encabezado si es necesario
+        cell.fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
+        cell.font = Font(bold=True, color='FFFFFF')
+
+    # Escribir los datos a partir de la fila 5
+    for row_idx, row in enumerate(df_cliente.values, start=5):
+        for col_idx, value in enumerate(row, start=1):
+            worksheet.cell(row=row_idx, column=col_idx, value=value)
+
+    # Guardar el nuevo archivo Excel
+    workbook.save(output_file)
 
 class FileProcessor:
     """
     Clase para procesar archivos Excel y generar reportes por cliente, y manejar la base de datos de clientes.
     """
 
-    def __init__(self, sharepoint_file_url: str):
+    def __init__(self, site_url: str, sharepoint_file_url: str):
         """
         Inicializa una instancia de FileProcessor.
 
         Args:
+            site_url (str): URL del sitio de SharePoint.
             sharepoint_file_url (str): Ruta relativa al archivo en SharePoint.
         """
+        self.site_url = site_url
         self.sharepoint_file_url = sharepoint_file_url
         self.output_dir = os.path.join('data', 'Clientes_Separados')
         self.db = ClientDatabase()
@@ -32,32 +74,36 @@ class FileProcessor:
         self.ctx = None  # SharePoint context
         self.local_file_path = None  # Ruta al archivo descargado
 
-    def authenticate_sharepoint(self):
+    def authenticate_sharepoint(self, username: str, password: str):
         """
         Autentica en SharePoint y crea el contexto.
-        """
-        site_url = self.config_manager.get_sharepoint_site_url()
-        username = self.config_manager.get_sharepoint_username()
-        password = self.config_manager.get_sharepoint_password()
 
-        if not site_url or not username or not password:
+        Args:
+            username (str): Nombre de usuario de SharePoint.
+            password (str): Contraseña de SharePoint.
+        """
+        if not username or not password:
             raise ValueError("Las credenciales de SharePoint no están configuradas.")
 
-        ctx_auth = AuthenticationContext(site_url)
+        ctx_auth = AuthenticationContext(self.site_url)
         if ctx_auth.acquire_token_for_user(username, password):
-            self.ctx = ClientContext(site_url, ctx_auth)
+            self.ctx = ClientContext(self.site_url, ctx_auth)
         else:
             raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
 
-    def download_file(self) -> str:
+    def download_file(self, username: str, password: str) -> str:
         """
         Descarga el archivo de SharePoint y lo guarda en una ubicación temporal.
+
+        Args:
+            username (str): Nombre de usuario de SharePoint.
+            password (str): Contraseña de SharePoint.
 
         Returns:
             str: Ruta al archivo descargado localmente.
         """
         if not self.ctx:
-            self.authenticate_sharepoint()
+            self.authenticate_sharepoint(username, password)
 
         # Crear carpeta temporal si no existe
         os.makedirs('data/temp', exist_ok=True)
@@ -72,28 +118,54 @@ class FileProcessor:
 
     def run_macro(self):
         """
-        Ejecuta la macro 'ActualizarTodo' en el archivo Excel.
+        Ejecuta la macro 'ActualizarPBI' en una nueva instancia de Excel y la cierra después de un retraso de 2 segundos.
         """
-        global macro_name
         if not self.local_file_path:
             raise Exception("El archivo no ha sido descargado aún.")
 
-        excel_app = win32com.client.Dispatch("Excel.Application")
-        excel_app.Visible = False
-        excel_app.DisplayAlerts = False
-
-        workbook = excel_app.Workbooks.Open(os.path.abspath(self.local_file_path), ReadOnly=False)
-
         try:
-            macro_name = 'ActualizarPBI'
-            excel_app.Run(f"'{workbook.Name}'!{macro_name}")
-        except Exception as e:
-            workbook.Close(SaveChanges=False)
-            excel_app.Quit()
-            raise Exception(f"Error al ejecutar la macro '{macro_name}': {str(e)}")
+            # Crear una nueva instancia de Excel
+            excel_app = win32com.client.DispatchEx("Excel.Application")
+            excel_app.Visible = True  # Mantener Excel no visible
+            excel_app.DisplayAlerts = False
+            excel_app.AskToUpdateLinks = False
+            excel_app.EnableEvents = False
 
-        workbook.Close(SaveChanges=True)  # Guardar los cambios si la macro modifica el archivo
-        excel_app.Quit()
+            print("Excel iniciado...")
+
+            # Intentar abrir el archivo de Excel
+            workbook = excel_app.Workbooks.Open(os.path.abspath(self.local_file_path), ReadOnly=False)
+            print("Archivo de Excel abierto...")
+
+            # Añadir un tiempo de espera antes de ejecutar la macro
+            time.sleep(1)
+
+            macro_name = 'ActualizarPBI'
+
+            # Reintentar la ejecución de la macro hasta 3 veces si falla
+            for intento in range(3):
+                try:
+                    print(f"Ejecutando macro '{macro_name}', intento {intento + 1}...")
+                    excel_app.Run(f"'{workbook.Name}'!{macro_name}")
+                    print("Macro ejecutada exitosamente.")
+                    break  # Salir del bucle si la macro se ejecuta sin errores
+                except Exception as e:
+                    print(f"Error al ejecutar la macro en el intento {intento + 1}: {str(e)}")
+                    if intento < 2:
+                        time.sleep(2)  # Esperar antes de reintentar
+                    else:
+                        raise Exception(f"Error al ejecutar la macro '{macro_name}': {str(e)}")
+
+            # Esperar 2 segundos antes de cerrar
+            time.sleep(2)
+
+            # Cerrar el archivo de Excel y la instancia
+            workbook.Close(SaveChanges=True)
+            excel_app.Quit()
+            print("Instancia de Excel cerrada.")
+
+        except Exception as e:
+            raise Exception(f"Error al iniciar o manejar Excel: {str(e)}")
 
     def process_file(self) -> List[str]:
         """
@@ -103,7 +175,7 @@ class FileProcessor:
             List[str]: Lista de nombres de clientes procesados.
         """
         # Leer el archivo Excel desde la hoja correspondiente
-        df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=6)
+        df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=3)
 
         # Remover espacios en blanco de los nombres de las columnas
         df.columns = df.columns.str.strip()
@@ -129,6 +201,8 @@ class FileProcessor:
 
         os.makedirs(self.output_dir, exist_ok=True)
 
+        template_path = get_resource_path('template/plantilla_Excel.xlsx')
+
         for client_id, client_data in clients_dict.items():
             nombre = client_data['nombre']
             aliases = client_data['aliases']
@@ -145,45 +219,9 @@ class FileProcessor:
             output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
             # Crear el archivo Excel con formato
-            self._save_excel_with_format(df_cliente, output_file)
+            _save_excel_with_format(df_cliente, template_path, output_file)
 
         return [client_data['nombre'] for client_id, client_data in clients_dict.items()]
-
-    def _save_excel_with_format(self, df_cliente: pd.DataFrame, output_file: str):
-        """
-        Guarda el DataFrame en un archivo Excel con formato personalizado.
-
-        Args:
-            df_cliente (pd.DataFrame): DataFrame del cliente a guardar.
-            output_file (str): Ruta del archivo Excel a generar.
-        """
-        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-            df_cliente.to_excel(writer, index=False, startrow=7, sheet_name='Clientes')
-
-            # Obtener el workbook y el worksheet
-            workbook = writer.book
-            worksheet = writer.sheets['Clientes']
-
-            # Ajustar el ancho de columnas
-            for col_num, column in enumerate(df_cliente.columns, 1):
-                max_length = df_cliente[column].astype(str).map(len).max() + 2
-                worksheet.column_dimensions[get_column_letter(col_num)].width = max(max_length, 15)
-
-            # Aplicar color de fondo en la fila de encabezado
-            header_fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
-            for cell in worksheet[8]:  # La fila 8, ya que los datos empiezan en la fila 8 después del encabezado
-                cell.fill = header_fill
-                cell.font = Font(bold=True, color='FFFFFF')
-
-            # Ajustar el ancho de la columna "Consignee" si existe
-            if 'Consignee' in df_cliente.columns:
-                consignee_col = df_cliente.columns.get_loc('Consignee') + 1
-                worksheet.column_dimensions[get_column_letter(consignee_col)].width = 30
-
-            # Aplicar el formato de fuente a las celdas de datos
-            for row in worksheet.iter_rows(min_row=8, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
-                for cell in row:
-                    cell.font = Font(name='Calibri')
 
     def get_client_file(self, cliente: str) -> Optional[str]:
         """
