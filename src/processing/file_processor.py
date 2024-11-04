@@ -126,7 +126,7 @@ class FileProcessor:
         try:
             # Crear una nueva instancia de Excel
             excel_app = win32com.client.DispatchEx("Excel.Application")
-            excel_app.Visible = True  # Mantener Excel no visible
+            excel_app.Visible = False  # Mantener Excel no visible
             excel_app.DisplayAlerts = False
             excel_app.AskToUpdateLinks = False
             excel_app.EnableEvents = False
