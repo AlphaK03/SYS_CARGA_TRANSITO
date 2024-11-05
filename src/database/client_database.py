@@ -242,18 +242,33 @@ class ClientDatabase:
 
     def add_client_to_list(self, client_id: int, list_id: int):
         """
-        Asocia un cliente a una lista.
+        Asocia un cliente a una lista si la asociación no existe y list_id no es None.
 
         Args:
             client_id (int): ID del cliente.
             list_id (int): ID de la lista.
         """
+        # Verificar que list_id no sea None
+        if list_id is None:
+            raise ValueError(f"list_id no puede ser None al agregar cliente con ID {client_id} a la lista")
+
         cursor = self.connection.cursor()
+
+        # Verificar si ya existe la asociación entre el cliente y la lista
         cursor.execute('''
-            INSERT INTO client_list (client_id, list_id)
-            VALUES (?, ?)
+            SELECT 1 FROM client_list WHERE client_id = ? AND list_id = ?
         ''', (client_id, list_id))
-        self.connection.commit()
+        result = cursor.fetchone()
+
+        # Solo agregar si la asociación no existe
+        if not result:
+            cursor.execute('''
+                INSERT INTO client_list (client_id, list_id)
+                VALUES (?, ?)
+            ''', (client_id, list_id))
+            self.connection.commit()
+        else:
+            print(f"La asociación del cliente con ID {client_id} y la lista con ID {list_id} ya existe.")
 
     def remove_client_from_list(self, client_id: int, list_id: int):
         """
@@ -305,3 +320,99 @@ class ClientDatabase:
         if not result:
             self.add_list('Predeterminada')
         self.connection.commit()
+
+
+    def get_client_lists(self, client_id: int) -> List[int]:
+        """
+        Obtiene las listas a las que pertenece un cliente.
+
+        Args:
+            client_id (int): ID del cliente.
+
+        Returns:
+            List[int]: Lista de IDs de listas.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT list_id FROM client_list WHERE client_id = ?', (client_id,))
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
+
+    def get_list_names(self) -> List[str]:
+        """
+        Obtiene los nombres de todas las listas.
+
+        Returns:
+            List[str]: Lista de nombres de listas.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT nombre FROM listas')
+        return [row[0] for row in cursor.fetchall()]
+
+    def client_exists(self, client_id: int) -> bool:
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT 1 FROM clientes WHERE id = ?', (client_id,))
+        return cursor.fetchone() is not None
+
+    def list_exists(self, list_id: int) -> bool:
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT 1 FROM listas WHERE id = ?', (list_id,))
+        return cursor.fetchone() is not None
+
+
+    def get_list_id_by_name(self, list_name: str) -> Optional[int]:
+        """
+        Obtiene el ID de una lista según su nombre.
+
+        Args:
+            list_name (str): Nombre de la lista.
+
+        Returns:
+            Optional[int]: ID de la lista si existe, None en caso contrario.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT id FROM listas WHERE nombre = ?", (list_name,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def alias_exists(self, client_id: int, alias: str) -> bool:
+        """
+        Verifica si un alias específico ya existe para un cliente dado.
+
+        Args:
+            client_id (int): ID del cliente.
+            alias (str): Alias a verificar.
+
+        Returns:
+            bool: True si el alias existe, False en caso contrario.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT 1 FROM aliases WHERE client_id = ? AND alias = ?", (client_id, alias))
+        return cursor.fetchone() is not None
+
+    def list_exists_by_name(self, list_name: str) -> bool:
+        """
+        Verifica si una lista con un nombre específico ya existe en la base de datos.
+
+        Args:
+            list_name (str): Nombre de la lista a verificar.
+
+        Returns:
+            bool: True si la lista existe, False en caso contrario.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT 1 FROM listas WHERE nombre = ?", (list_name,))
+        return cursor.fetchone() is not None
+
+    def client_exists_by_name(self, client_name: str) -> bool:
+        """
+        Verifica si un cliente con un nombre específico ya existe en la base de datos.
+
+        Args:
+            client_name (str): Nombre del cliente a verificar.
+
+        Returns:
+            bool: True si el cliente existe, False en caso contrario.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT 1 FROM clientes WHERE nombre = ?", (client_name,))
+        return cursor.fetchone() is not None
