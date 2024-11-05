@@ -58,9 +58,9 @@ def init_styles(scaling_factor):
     style = ttk.Style()
 
     # Tamaños de fuente ajustados al escalado
-    base_font_size = int(12 * scaling_factor)
-    small_font_size = int(10 * scaling_factor)
-    large_font_size = int(17 * scaling_factor)
+    base_font_size = int(15 * scaling_factor)
+    small_font_size = int(13 * scaling_factor)
+    large_font_size = int(20 * scaling_factor)
 
     # Estilo para etiquetas
     style.configure(
@@ -162,6 +162,28 @@ def init_styles(scaling_factor):
         font=("Helvetica", base_font_size)
     )
 
+    style = ttk.Style()
+
+    # Define estilos personalizados para las etiquetas de progreso
+    style.configure('Info.TLabel', foreground='#0c1834', background='white',
+                    font=("Helvetica", int(12 * scaling_factor)))
+    style.configure('Success.TLabel', foreground='#28a745', background='white',
+                    font=("Helvetica", int(12 * scaling_factor), "bold"))
+    style.configure('Warning.TLabel', foreground='#ffc107', background='white',
+                    font=("Helvetica", int(12 * scaling_factor), "bold"))
+    style.configure('Error.TLabel', foreground='#dc3545', background='white',
+                    font=("Helvetica", int(12 * scaling_factor), "bold"))
+    style.configure('Delete.TLabel', foreground='#ffffff', background='white',
+                    font=("Helvetica", int(12 * scaling_factor), "bold"))
+
+    # Define estilos personalizados para los botones
+    style.configure('BlueZodiac.TButton', foreground='white', background='#0c1834')
+    style.configure('GreenSuccess.TButton', foreground='white', background='#28a745')
+
+    # Define estilos personalizados para otros elementos si es necesario
+    style.configure('Title.TLabel', font=("Helvetica", int(20 * scaling_factor), "bold"))
+    style.configure('Custom.TLabel', font=("Helvetica", int(12 * scaling_factor)))
+
 def get_resource_path(relative_path):
     """Obtiene la ruta del recurso empaquetado o del entorno de desarrollo."""
     base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
@@ -236,6 +258,10 @@ class Application(ttk.Window):
 
         super().__init__(themename="flatly")  # Mantener el tema
         self.title("CHC REPORTES")
+
+        # Inicializar la etiqueta de progreso usando grid
+        self.progress_label = ttk.Label(self, text="", style='Info.TLabel')
+        self.progress_label.grid(row=0, column=0, padx=10, pady=10, sticky='w')
 
         # Ajuste del factor de escalado
         self.scaling_factor = self.get_scaling_factor()
@@ -408,9 +434,6 @@ class Application(ttk.Window):
             self.loading_index = 0
             self.animate_loading()
 
-    from tkinter import scrolledtext
-    import requests
-
     def open_about_window(self):
         about_window = ttk.Toplevel(self)
         about_window.title("Acerca de")
@@ -434,7 +457,7 @@ class Application(ttk.Window):
             about_window,
             text=app_name,
             style='Custom.TLabel',
-            font=("Helvetica", int(16 * scaling_factor), "bold")
+            font=("Helvetica", int(22 * scaling_factor), "bold")
         )
         label_app_name.pack(pady=int(10 * scaling_factor))
 
@@ -443,7 +466,7 @@ class Application(ttk.Window):
             about_window,
             text=version,
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * scaling_factor))
+            font=("Helvetica", int(16 * scaling_factor))
         )
         label_version.pack(pady=int(5 * scaling_factor))
 
@@ -452,7 +475,7 @@ class Application(ttk.Window):
             about_window,
             text=f"Desarrollado por {company}",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * scaling_factor))
+            font=("Helvetica", int(16 * scaling_factor))
         )
         label_company.pack(pady=int(5 * scaling_factor))
 
@@ -552,7 +575,7 @@ class Application(ttk.Window):
 
         Args:
             message (str): Mensaje a mostrar.
-            Style (str): Estilo de la etiqueta. Valores posibles: 'Info.TLabel', 'Success.TLabel', etc.
+            style (str): Estilo de la etiqueta. Valores posibles: 'Info.TLabel', 'Success.TLabel', etc.
         """
         self.progress_label.config(style=style, text=message)
         self.update_idletasks()  # Actualiza la interfaz para reflejar el cambio inmediatamente
@@ -614,7 +637,7 @@ class Application(ttk.Window):
             config_window,
             text="Información de autenticación de la cuenta:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * scaling_factor))
+            font=("Helvetica", int(20 * scaling_factor))
         )
         etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
 
@@ -624,7 +647,7 @@ class Application(ttk.Window):
             config_window,
             text=f"Cuenta autenticada: {email_actual}" if email_actual else "No autenticado",
             style='Custom.TLabel',
-            font=("Helvetica", int(10 * scaling_factor))
+            font=("Helvetica", int(16 * scaling_factor))
         )
         etiqueta_email_actual.grid(row=1, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
                                    sticky='w')
@@ -637,7 +660,7 @@ class Application(ttk.Window):
             config_window,
             text="Proveedor de Correo:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * scaling_factor))
+            font=("Helvetica", int(15 * scaling_factor))
         )
         etiqueta_provider.grid(row=2, column=0, pady=int(5 * scaling_factor), sticky='w')
 
@@ -816,7 +839,7 @@ class Application(ttk.Window):
             config_window,
             text="Ingresa tus credenciales de SharePoint:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * scaling_factor))
+            font=("Helvetica", int(20 * scaling_factor))
         )
         etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
 
@@ -824,11 +847,11 @@ class Application(ttk.Window):
             config_window,
             text="Usuario de SharePoint:",
             style='Custom.TLabel',
-            font=("Helvetica", int(10 * scaling_factor))
+            font=("Helvetica", int(17 * scaling_factor))
         )
         etiqueta_username.grid(row=1, column=0, pady=int(5 * scaling_factor), sticky='w')
 
-        entrada_username = ttk.Entry(config_window, font=("Helvetica", int(10 * scaling_factor)))
+        entrada_username = ttk.Entry(config_window, font=("Helvetica", int(15 * scaling_factor)))
         entrada_username.insert(0, self.config_manager.get_sharepoint_username())
         entrada_username.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor), sticky='ew')
 
@@ -836,7 +859,7 @@ class Application(ttk.Window):
             config_window,
             text="Contraseña de SharePoint:",
             style='Custom.TLabel',
-            font=("Helvetica", int(10 * scaling_factor))
+            font=("Helvetica", int(17 * scaling_factor))
         )
         etiqueta_password.grid(row=3, column=0, pady=int(5 * scaling_factor), sticky='w')
 
@@ -844,7 +867,7 @@ class Application(ttk.Window):
         frame_password = ttk.Frame(config_window)
         frame_password.grid(row=4, column=0, pady=int(5 * scaling_factor), sticky='ew')
 
-        entrada_password = ttk.Entry(frame_password, show='*', font=("Helvetica", int(10 * scaling_factor)))
+        entrada_password = ttk.Entry(frame_password, show='*', font=("Helvetica", int(15 * scaling_factor)))
         entrada_password.grid(row=0, column=0, sticky='ew', padx=int(5 * scaling_factor), pady=int(5 * scaling_factor))
 
         # Cargar imágenes de los íconos de ojo usando rutas seguras
@@ -921,9 +944,6 @@ class Application(ttk.Window):
         self.wait_window(config_window)
 
     def filter_and_generate(self):
-        #self.update_progress("Iniciando proceso...")
-        #self.start_loading_animation()
-
         # URLs fijas dentro del código
         site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
         file_url = '/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas en tránsito_Prueba conexión Power BI.xlsm'
@@ -931,7 +951,7 @@ class Application(ttk.Window):
         password = self.config_manager.get_sharepoint_password()
 
         if not username or not password:
-            self.update_progress("Por favor, configura tu usuario y contraseña de SharePoint.")
+            self.update_progress("Por favor, configura tu usuario y contraseña de SharePoint.", style='Warning.TLabel')
             self.stop_loading_animation()
             self.open_sharepoint_credentials_window()
             return
@@ -939,28 +959,33 @@ class Application(ttk.Window):
         try:
             # Crear la instancia de FileProcessor
             self.processor = FileProcessor(site_url, file_url)
-            # Descargando el archivo}
-            self.update_progress("Descargando informe...", style='Info.TLabel')
+            self.update_progress("", style='Info.TLabel')
+
+            # Descargando el archivo
+            self.update_progress("Descargando el informe...", style='Info.TLabel')
             self.update_idletasks()
             self.processor.download_file(username, password)
-
+            self.update_progress("********************************************************", style='Delete.TLabel')
             # Ejecutar la macro
-            self.update_progress("Actualizando informe...", style='Info.TLabel')
+            self.update_progress("Actualizando el informe...", style='Info.TLabel')
             self.update_idletasks()
             self.processor.run_macro()
-
+            self.update_progress("********************************************************", style='Delete.TLabel')
             # Generar reportes
             self.update_progress("Generando reportes...", style='Info.TLabel')
             self.update_idletasks()
             self.processor.process_file()
+            self.update_progress("********************************************************", style='Delete.TLabel')
 
             # Mensaje de éxito
             self.update_progress("Reportes generados!!", style='Success.TLabel')
             self.stop_loading_animation()
 
+            # Programar la limpieza del mensaje de progreso después de 3 segundos (3000 ms)
+            #self.after(3000, lambda: self.update_progress("", style='Info.TLabel'))
 
         except Exception as e:
-            self.update_progress(f"Error: {str(e)}")
+            self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
         finally:
             # Asegurarse de cerrar el archivo si la instancia de processor existe
             if self.processor and hasattr(self.processor, 'close') and callable(self.processor.close):
@@ -970,7 +995,7 @@ class Application(ttk.Window):
     def send_mails(self):
         email = self.config_manager.get_email()
         if not email:
-            self.update_progress("Por favor, configura tu correo.")
+            self.update_progress("Por favor, configura tu correo.", style='Warning.TLabel')
             self.open_config_window()
             return
 
@@ -978,6 +1003,7 @@ class Application(ttk.Window):
         listas = self.db.get_all_lists()
         if not listas:
             messagebox.showwarning("Advertencia", "No hay listas disponibles. Por favor, crea una lista primero.")
+            self.update_progress("No hay listas disponibles para enviar correos.", style='Warning.TLabel')
             return
 
         lista_nombres = [nombre for (id, nombre) in listas]
@@ -1027,8 +1053,9 @@ class Application(ttk.Window):
 
         try:
             if not self.processor:
-                self.update_progress("Primero debes generar los reportes.")
+                self.update_progress("Primero debes generar los reportes.", style='Warning.TLabel')
                 self.stop_loading_animation()
+
                 return
 
             clientes_con_correo = [
@@ -1038,7 +1065,8 @@ class Application(ttk.Window):
             ]
 
             if not clientes_con_correo:
-                self.update_progress("No hay clientes con correos asociados para enviar.")
+                self.update_progress("No hay clientes con correos asociados para enviar.", style='Warning.TLabel')
+
                 self.stop_loading_animation()
                 return
 
@@ -1054,6 +1082,7 @@ class Application(ttk.Window):
                         if "Se requiere reautenticación" in msg:
                             # Solicitar reautenticación
                             self.update_progress("Reautenticación requerida. Por favor, inicia sesión nuevamente.",
+
                                                  style='Warning.TLabel')
                             self.open_config_window()
                             errores_envio.append(f"Reautenticación requerida para {cliente} ({correo}).")
@@ -1063,13 +1092,15 @@ class Application(ttk.Window):
                     errores_envio.append(f"No se encontró el archivo para el cliente {cliente}.")
 
             if errores_envio:
-                self.update_progress("Errores durante el envío de correos.")
+                self.update_progress("Errores durante el envío de correos.", style='Error.TLabel')
                 errores_detallados = "\n".join(errores_envio)
                 messagebox.showerror("Errores de Envío", errores_detallados)
             else:
                 self.update_progress("Reportes enviados exitosamente!", style='Success.TLabel')
+                # Programar la limpieza del mensaje de progreso después de 3 segundos
+                #self.after(3000, lambda: self.update_progress("", style='Info.TLabel'))
         except Exception as e:
-            self.update_progress(f"Error: {str(e)}")
+            self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
         finally:
             self.stop_loading_animation()
 
@@ -1113,7 +1144,7 @@ class Application(ttk.Window):
             frame_selection,
             text="Seleccionar Lista:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            font=("Helvetica", int(16 * self.scaling_factor))
         )
         label_select_lista.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
@@ -1273,7 +1304,7 @@ class Application(ttk.Window):
             frame_aliases,
             text="Aliases del Cliente Seleccionado:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            font=("Helvetica", int(16 * self.scaling_factor))
         )
         label_aliases.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
