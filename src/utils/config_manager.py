@@ -1,5 +1,4 @@
 # src/utils/config_manager.py
-import logging
 import os
 import json
 import keyring

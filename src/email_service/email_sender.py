@@ -2,7 +2,6 @@
 
 import os
 import base64
-import webbrowser
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -13,8 +12,6 @@ import requests
 from msal import PublicClientApplication
 
 from utils.config_manager import ConfigManager
-from utils.token_cache import FileTokenCache
-import msal
 
 class EmailSender:
     GOOGLE_SCOPES = [

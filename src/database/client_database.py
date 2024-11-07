@@ -2,8 +2,6 @@
 import os
 import sqlite3
 from typing import List, Optional, Tuple
-import pandas as pd
-import json
 
 class ClientDatabase:
     """

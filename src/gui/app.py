@@ -5,7 +5,6 @@ import os
 import socketserver
 import sqlite3
 import sys
-import tkinter as tk
 import threading
 from urllib.parse import urlparse, parse_qs
 import ttkbootstrap as ttk
@@ -53,136 +52,6 @@ def check_sharepoint_credentials(username, password):
         logging.error(f"Error de autenticación en SharePoint: {e}")
         return False
 
-
-def init_styles(scaling_factor):
-    style = ttk.Style()
-
-    # Tamaños de fuente ajustados al escalado
-    base_font_size = int(15 * scaling_factor)
-    small_font_size = int(13 * scaling_factor)
-    large_font_size = int(20 * scaling_factor)
-
-    # Estilo para etiquetas
-    style.configure(
-        'Custom.TLabel',
-        background='white',
-        foreground='#0c1834',  # Blue Zodiac
-        font=("Helvetica", base_font_size)
-    )
-
-    # Estilo para etiquetas de éxito
-    style.configure(
-        'Success.TLabel',
-        background='white',
-        foreground='#28a745',  # Color verde
-        font=("Helvetica", base_font_size)
-    )
-
-    # Estilo para botones 'Blue Zodiac' con bordes curvos
-    style.configure(
-        'BlueZodiac.TButton',
-        font=("Helvetica", small_font_size, "bold"),
-        foreground='white',
-        background='#0c1834',
-        borderwidth=1,
-        relief='solid'
-    )
-    style.map(
-        'BlueZodiac.TButton',
-        foreground=[('active', 'white')],
-        background=[('active', '#0a1430')]
-    )
-
-    # Repite este ajuste para los demás estilos de botones
-    # Estilo para botones 'Yellow Sea'
-    style.configure(
-        'YellowSea.TButton',
-        font=("Helvetica", small_font_size, "bold"),
-        foreground='white',
-        background='#ffb000',
-        borderwidth=1,
-        relief='solid'
-    )
-    style.map(
-        'YellowSea.TButton',
-        foreground=[('active', 'white')],
-        background=[('active', '#e09a00')]
-    )
-
-    # Estilo para botones 'Red Color'
-    style.configure(
-        'RedColor.TButton',
-        font=("Helvetica", small_font_size, "bold"),
-        foreground='white',
-        background='#f70103',
-        borderwidth=1,
-        relief='solid'
-    )
-    style.map(
-        'RedColor.TButton',
-        foreground=[('active', 'white')],
-        background=[('active', '#d60002')]
-    )
-
-    # Estilo para botones 'Green Success'
-    style.configure(
-        'GreenSuccess.TButton',
-        font=("Helvetica", small_font_size, "bold"),
-        foreground='white',
-        background='#28a745',
-        borderwidth=1,
-        relief='solid'
-    )
-    style.map(
-        'GreenSuccess.TButton',
-        foreground=[('active', 'white')],
-        background=[('active', '#218838')]
-    )
-
-    # Estilo para botones 'Warning'
-    style.configure(
-        'Warning.TButton',
-        font=("Helvetica", small_font_size, "bold"),
-        foreground='black',
-        background='#ffc107',
-        borderwidth=1,
-        relief='solid'
-    )
-    style.map(
-        'Warning.TButton',
-        foreground=[('active', 'black')],
-        background=[('active', '#e0a800')]
-    )
-
-    # Estilo para etiquetas informativas
-    style.configure(
-        'Info.TLabel',
-        background='white',
-        foreground='#0c1834',  # Blue Zodiac
-        font=("Helvetica", base_font_size)
-    )
-
-    style = ttk.Style()
-
-    # Define estilos personalizados para las etiquetas de progreso
-    style.configure('Info.TLabel', foreground='#0c1834', background='white',
-                    font=("Helvetica", int(12 * scaling_factor)))
-    style.configure('Success.TLabel', foreground='#28a745', background='white',
-                    font=("Helvetica", int(12 * scaling_factor), "bold"))
-    style.configure('Warning.TLabel', foreground='#ffc107', background='white',
-                    font=("Helvetica", int(12 * scaling_factor), "bold"))
-    style.configure('Error.TLabel', foreground='#dc3545', background='white',
-                    font=("Helvetica", int(12 * scaling_factor), "bold"))
-    style.configure('Delete.TLabel', foreground='#ffffff', background='white',
-                    font=("Helvetica", int(12 * scaling_factor), "bold"))
-
-    # Define estilos personalizados para los botones
-    style.configure('BlueZodiac.TButton', foreground='white', background='#0c1834')
-    style.configure('GreenSuccess.TButton', foreground='white', background='#28a745')
-
-    # Define estilos personalizados para otros elementos si es necesario
-    style.configure('Title.TLabel', font=("Helvetica", int(20 * scaling_factor), "bold"))
-    style.configure('Custom.TLabel', font=("Helvetica", int(12 * scaling_factor)))
 
 def get_resource_path(relative_path):
     """Obtiene la ruta del recurso empaquetado o del entorno de desarrollo."""
@@ -241,6 +110,122 @@ class AuthHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(html_content.encode('utf-8'))
 
 
+
+
+def init_styles():
+    style = ttk.Style()
+
+
+    # Estilo para etiquetas
+    style.configure(
+        'Custom.TLabel',
+        background='white',
+        foreground='#0c1834',  # Blue Zodiac
+    )
+
+    # Estilo para etiquetas de éxito
+    style.configure(
+        'Success.TLabel',
+        background='white',
+        foreground='#28a745',  # Color verde
+    )
+
+    # Estilo para botones 'Blue Zodiac' con bordes curvos
+    style.configure(
+        'BlueZodiac.TButton',
+        foreground='white',
+        background='#0c1834',
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'BlueZodiac.TButton',
+        foreground=[('active', 'white')],
+        background=[('active', '#0a1430')]
+    )
+
+    # Repite este ajuste para los demás estilos de botones
+    # Estilo para botones 'Yellow Sea'
+    style.configure(
+        'YellowSea.TButton',
+        foreground='white',
+        background='#ffb000',
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'YellowSea.TButton',
+        foreground=[('active', 'white')],
+        background=[('active', '#e09a00')]
+    )
+
+    # Estilo para botones 'Red Color'
+    style.configure(
+        'RedColor.TButton',
+        foreground='white',
+        background='#f70103',
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'RedColor.TButton',
+        foreground=[('active', 'white')],
+        background=[('active', '#d60002')]
+    )
+
+    # Estilo para botones 'Green Success'
+    style.configure(
+        'GreenSuccess.TButton',
+        foreground='white',
+        background='#28a745',
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'GreenSuccess.TButton',
+        foreground=[('active', 'white')],
+        background=[('active', '#218838')]
+    )
+
+    # Estilo para botones 'Warning'
+    style.configure(
+        'Warning.TButton',
+        foreground='black',
+        background='#ffc107',
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'Warning.TButton',
+        foreground=[('active', 'black')],
+        background=[('active', '#e0a800')]
+    )
+
+    # Estilo para etiquetas informativas
+    style.configure(
+        'Info.TLabel',
+        background='white',
+        foreground='#0c1834'
+    )
+
+    style = ttk.Style()
+
+    # Define estilos personalizados para las etiquetas de progreso
+    style.configure('Info.TLabel', foreground='#0c1834', background='white')
+    style.configure('Success.TLabel', foreground='#28a745', background='white')
+    style.configure('Warning.TLabel', foreground='#ffc107', background='white')
+    style.configure('Error.TLabel', foreground='#dc3545', background='white')
+    style.configure('Delete.TLabel', foreground='#ffffff', background='white')
+
+    # Define estilos personalizados para los botones
+    style.configure('BlueZodiac.TButton', foreground='white', background='#0c1834')
+    style.configure('GreenSuccess.TButton', foreground='white', background='#28a745')
+
+    # Define estilos personalizados para otros elementos si es necesario
+    style.configure('Title.TLabel')
+    style.configure('Custom.TLabel')
+
+
 def open_user_manual_window():
     url = "https://alphak03.github.io/CHC_REPORTES_MANUAL-DE-USUARIO/"  # Reemplaza con el URL del manual de usuario
     webbrowser.open(url)
@@ -270,7 +255,9 @@ class Application(ttk.Window):
         # Ajustar el tamaño inicial de la ventana según el escalado
         initial_width = int(500 * self.scaling_factor)
         initial_height = int(400 * self.scaling_factor)
-        self.geometry(f"{initial_width}x{initial_height}")
+
+        self.center_window(self, initial_width, initial_height)
+
 
         self.processor = None
         self.db = ClientDatabase()
@@ -291,10 +278,9 @@ class Application(ttk.Window):
         # Inicializar EmailSender pasando la instancia de msal_app
         self.email_sender = EmailSender(self.msal_app)
 
-        init_styles(self.scaling_factor)  # Inicializar estilos personalizados
+        init_styles()  # Inicializar estilos personalizados
         self.create_widgets()  # Crear widgets
         self.check_credentials()  # Verificar credenciales
-
 
     def get_scaling_factor(self):
         # Obtener el factor de escalado de DPI
@@ -307,7 +293,6 @@ class Application(ttk.Window):
             return scaling
         else:
             return self.tk.call('tk', 'scaling')
-
 
     def create_widgets(self):
         # Crear la barra de menú
@@ -328,7 +313,7 @@ class Application(ttk.Window):
         gestion_menu.add_command(label="Exportar Clientes(JSON)", command=self.export_clients)
         menu_bar.add_cascade(label="Gestión", menu=gestion_menu)
 
-        # **Nuevo Menú "Ayuda"**
+        # Nuevo Menú "Ayuda"
         ayuda_menu = tk.Menu(menu_bar, tearoff=0)
         ayuda_menu.add_command(label="Acerca de", command=self.open_about_window)
         menu_bar.add_cascade(label="Ayuda", menu=ayuda_menu)
@@ -338,36 +323,78 @@ class Application(ttk.Window):
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=0)
         self.rowconfigure(2, weight=1)
+        self.rowconfigure(3, weight=0)
+        self.rowconfigure(4, weight=1)
+        self.rowconfigure(5, weight=0)
+        self.rowconfigure(6, weight=0)  # Ajustado para el pie de página
 
         # Ruta de la imagen
-        logo_path = get_resource_path('resources/Logo_CHC.png')
+        logo_path = get_resource_path('resources/Logo_CHC_new.png')
+        print(f"Ruta del logo: {logo_path}")  # Añadir esta línea para depuración
 
-        # Cargar la imagen original
-        self.original_logo_image = None
+        # Crear el label para el logo por adelantado
+        self.logo_label = tk.Label(self, bg='white')
+        self.logo_label.grid(row=0, column=0, padx=10, pady=(10, 5), sticky='n')
+
+        # Cargar y redimensionar la imagen del logo si existe
         if os.path.exists(logo_path):
             try:
-                self.original_logo_image = Image.open(logo_path)
-                self.logo_photo = ImageTk.PhotoImage(self.original_logo_image)
+                # Abrir la imagen original
+                original_logo_image = Image.open(logo_path)
+                desired_width = 120  # Aumentado de 300 a 400 px
 
-                self.logo_label = tk.Label(self, image=self.logo_photo, bg='white')
-                self.logo_label.grid(row=0, column=0, padx=10, pady=10, sticky='n')
+                # Determinar el filtro de resampling basado en la versión de Pillow
+                try:
+                    # Pillow >= 10.0.0
+                    resample = Image.Resampling.LANCZOS
+                except AttributeError:
+                    # Pillow < 10.0.0
+                    try:
+                        resample = Image.LANCZOS
+                    except AttributeError:
+                        # Pillow < 10.0.0 sin LANCZOS, usar BICUBIC
+                        resample = Image.BICUBIC
+
+                # Mantener la relación de aspecto
+                w_percent = (desired_width / float(original_logo_image.size[0]))
+                h_size = int((float(original_logo_image.size[1]) * float(w_percent)))
+                resized_image = original_logo_image.resize((desired_width, h_size), resample)
+
+                # Convertir la imagen a PhotoImage
+                self.logo_photo = ImageTk.PhotoImage(resized_image)
+
+                # Configurar el label de la imagen
+                self.logo_label.config(image=self.logo_photo)
+                self.logo_label.image = self.logo_photo  # Mantener la referencia para evitar que se libere la memoria
+
             except Exception as e:
+                logging.error(f"Error al cargar la imagen: {e}")
                 print(f"Error al cargar la imagen: {e}")
         else:
+            logging.warning(f"Imagen no encontrada: {logo_path}")
             print(f"Imagen no encontrada: {logo_path}")
+
+        # Etiqueta de texto "CHC CONSULTORES" debajo de la imagen con fuente grande
+        consultores_label = ttk.Label(
+            self,
+            text="CHC CONSULTORES",
+            style='Custom.TLabel',
+            font=("Helvetica", 13)
+        )
+        consultores_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky='n')
 
         # Título principal
         titulo_principal = ttk.Label(
             self,
             text="Gestor de Reportes",
             style='Custom.TLabel',
-            font=("Helvetica", 17, "bold")
+            font=("Helvetica", 25, "bold")
         )
-        titulo_principal.grid(row=1, column=0, padx=10, pady=10, sticky='n')
+        titulo_principal.grid(row=2, column=0, padx=10, pady=10, sticky='n')
 
         # Frame de los botones
         frame_botones = tk.Frame(self, bg='white')
-        frame_botones.grid(row=2, column=0, padx=10, pady=10, sticky='ew')
+        frame_botones.grid(row=3, column=0, padx=10, pady=10, sticky='ew')
 
         # Configuración de columnas en el frame de botones
         frame_botones.columnconfigure(0, weight=1)
@@ -391,27 +418,26 @@ class Application(ttk.Window):
         )
         boton_enviar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
-        # **Nuevo código agregado aquí**
-
         # Label para mostrar mensajes de progreso
         self.progress_label = ttk.Label(
             self,
             text="",
-            style='Custom.TLabel',
-            font=("Helvetica", 12)
+            style='Custom.TLabel'
         )
-        self.progress_label.grid(row=3, column=0, padx=10, pady=5, sticky='n')
-
-
+        self.progress_label.grid(row=4, column=0, padx=10, pady=5, sticky='n')
 
         # Cargar el GIF de carga
         loading_gif_path = get_resource_path('resources/loading.gif')
         if os.path.exists(loading_gif_path):
-            self.loading_frames = [ImageTk.PhotoImage(img) for img in
-                                   ImageSequence.Iterator(Image.open(loading_gif_path))]
-            self.loading_label = tk.Label(self, bg='white')
-            self.loading_label.grid(row=4, column=0, padx=10, pady=5, sticky='n')
-            self.loading_label.grid_remove()  # Ocultar el label inicialmente
+            try:
+                self.loading_frames = [ImageTk.PhotoImage(img) for img in
+                                       ImageSequence.Iterator(Image.open(loading_gif_path))]
+                self.loading_label = tk.Label(self, bg='white')
+                self.loading_label.grid(row=5, column=0, padx=10, pady=5, sticky='n')
+                self.loading_label.grid_remove()  # Ocultar el label inicialmente
+            except Exception as e:
+                logging.error(f"Error al cargar el GIF de carga: {e}")
+                print(f"Error al cargar el GIF de carga: {e}")
         else:
             self.loading_frames = None
             self.loading_label = None
@@ -420,13 +446,11 @@ class Application(ttk.Window):
         footer = ttk.Label(
             self,
             text="© 2024 CHC-Consultores. Todos los derechos reservados.",
-            style='Custom.TLabel',
-            font=("Helvetica", 10)
+            style='Custom.TLabel'
         )
-        footer.grid(row=5, column=0, padx=10, pady=10, sticky='s')
+        footer.grid(row=6, column=0, padx=10, pady=10, sticky='s')
 
         # Configurar el evento de redimensionamiento
-        self.bind("<Configure>", self.on_resize)
 
     def start_loading_animation(self):
         if self.loading_frames:
@@ -435,7 +459,7 @@ class Application(ttk.Window):
             self.animate_loading()
 
     def open_about_window(self):
-        about_window = ttk.Toplevel(self)
+        about_window = tk.Toplevel(self)
         about_window.title("Acerca de")
 
         # Ajustar el tamaño de la ventana según la resolución de pantalla
@@ -445,19 +469,23 @@ class Application(ttk.Window):
         window_width = min(int(400 * scaling_factor), 600)
         window_height = min(int(300 * scaling_factor), 400)
         about_window.geometry(f"{window_width}x{window_height}")
+
+        # Centrando la ventana en la pantalla
+        x = int((screen_width / 2) - (window_width / 2))
+        y = int((screen_height / 2) - (window_height / 2))
+        about_window.geometry(f"+{x}+{y}")
         about_window.configure(background='white')
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.1.0"
+        version = "Versión 2.1.5"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
         label_app_name = ttk.Label(
             about_window,
             text=app_name,
-            style='Custom.TLabel',
-            font=("Helvetica", int(22 * scaling_factor), "bold")
+            style='Custom.TLabel'
         )
         label_app_name.pack(pady=int(10 * scaling_factor))
 
@@ -465,8 +493,7 @@ class Application(ttk.Window):
         label_version = ttk.Label(
             about_window,
             text=version,
-            style='Custom.TLabel',
-            font=("Helvetica", int(16 * scaling_factor))
+            style='Custom.TLabel'
         )
         label_version.pack(pady=int(5 * scaling_factor))
 
@@ -474,8 +501,7 @@ class Application(ttk.Window):
         label_company = ttk.Label(
             about_window,
             text=f"Desarrollado por {company}",
-            style='Custom.TLabel',
-            font=("Helvetica", int(16 * scaling_factor))
+            style='Custom.TLabel'
         )
         label_company.pack(pady=int(5 * scaling_factor))
 
@@ -496,7 +522,7 @@ class Application(ttk.Window):
         boton_manual_usuario = ttk.Button(
             button_frame,
             text="Manual de Usuario",
-            command=open_user_manual_window,
+            command=open_user_manual_window,  # Asegúrate de tener esta función definida
             style='BlueZodiac.TButton'
         )
         boton_manual_usuario.pack()
@@ -508,24 +534,30 @@ class Application(ttk.Window):
 
     def open_privacy_terms_window(self):
         privacy_window = tk.Toplevel(self)
+        privacy_window.title("Política de Privacidad y Términos de Uso")
 
         # Ajustar el tamaño de la ventana según la resolución de pantalla
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        scaling_factor = min(screen_width / 1920,
-                             screen_height / 1080)  # Factor de escala basado en resolución 1920x1080
+        scaling_factor = min(screen_width / 1920, screen_height / 1080)
 
-        window_width = min(int(screen_width * 0.6 * scaling_factor), 1500)  # 60% del ancho o máximo 1500 px
-        window_height = min(int(screen_height * 0.8 * scaling_factor), 1000)  # 80% de la altura o máximo 1000 px
-        privacy_window.geometry(f"{window_width}x{window_height}")
+        window_width = min(int(screen_width * 0.6), 1500)
+        window_height = min(int(screen_height * 0.8), 1000)
+
+        # Calcular la posición x e y para centrar la ventana
+        x = int((screen_width / 2) - (window_width / 2))
+        y = int((screen_height / 2) - (window_height / 2))
+
+        # Establecer la geometría de la ventana incluyendo la posición
+        privacy_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
         privacy_window.configure(background='white')
 
-        # Título centrado con tamaño de fuente ajustado
+        # Título centrado
         title_label = ttk.Label(
             privacy_window,
             text="Política de Privacidad y Términos de Uso",
-            font=("Helvetica", int(16 * scaling_factor), "bold"),
-            anchor="center"
+            anchor="center",
+            style='Title.TLabel'
         )
         title_label.pack(pady=int(10 * scaling_factor))
 
@@ -580,33 +612,6 @@ class Application(ttk.Window):
         self.progress_label.config(style=style, text=message)
         self.update_idletasks()  # Actualiza la interfaz para reflejar el cambio inmediatamente
 
-    def resize_logo(self, max_width, max_height):
-        """Redimensiona el logo manteniendo la proporción."""
-        if self.original_logo_image:
-            original_width, original_height = self.original_logo_image.size
-            width_ratio = max_width / original_width
-            height_ratio = max_height / original_height
-            scaling_factor = min(width_ratio, height_ratio)
-
-            new_width = int(original_width * scaling_factor)
-            new_height = int(original_height * scaling_factor)
-
-            return self.original_logo_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        return None
-
-    def on_resize(self, event):
-        """Ajusta el tamaño del logo cuando se redimensiona la ventana."""
-        if event.widget == self:
-            min_width, min_height = 140, 116  # Tamaño mínimo del logo
-            max_width = event.width // 5  # Ajustar el ancho al 1/5 del ancho de la ventana
-            max_height = event.height // 5  # Ajustar la altura al 1/5 de la altura de la ventana
-
-            # Ajustar el tamaño del logo manteniendo el mínimo
-            new_logo = self.resize_logo(max(max_width, min_width), max(max_height, min_height))
-            if new_logo:
-                self.logo_photo = ImageTk.PhotoImage(new_logo)
-                self.logo_label.config(image=self.logo_photo)
-                self.logo_label.image = self.logo_photo  # Actualizar la imagen en el widget
 
     def check_credentials(self):
         email = self.config_manager.get_email()
@@ -615,18 +620,20 @@ class Application(ttk.Window):
             self.open_config_window()
 
     def open_config_window(self):
-        config_window = ttk.Toplevel(self)
+        config_window = tk.Toplevel(self)  # Cambiado de ttk.Toplevel a tk.Toplevel
         config_window.title("Configuración de Correo y Autenticación")
 
         # Ajustar el tamaño de la ventana según la resolución de pantalla
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
+        screen_width = config_window.winfo_screenwidth()
+        screen_height = config_window.winfo_screenheight()
         scaling_factor = min(screen_width / 1920,
                              screen_height / 1080)  # Factor de escala basado en resolución 1920x1080
 
-        window_width = min(int(screen_width * 0.3 * scaling_factor), 1200)  # 30% del ancho o máximo 1200 px
-        window_height = min(int(screen_height * 0.4 * scaling_factor), 900)  # 40% de la altura o máximo 900 px
-        config_window.geometry(f"{window_width}x{window_height}")
+        window_width = min(int(screen_width * 0.3), 1200)  # 30% del ancho o máximo 1200 px
+        window_height = min(int(screen_height * 0.4), 900)  # 40% de la altura o máximo 900 px
+
+        # Centrar la ventana
+        self.center_window(config_window, window_width, window_height)
         config_window.configure(background='white')
 
         # Configuración del grid de la ventana
@@ -636,8 +643,7 @@ class Application(ttk.Window):
         etiqueta_info = ttk.Label(
             config_window,
             text="Información de autenticación de la cuenta:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(20 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
 
@@ -646,8 +652,7 @@ class Application(ttk.Window):
         etiqueta_email_actual = ttk.Label(
             config_window,
             text=f"Cuenta autenticada: {email_actual}" if email_actual else "No autenticado",
-            style='Custom.TLabel',
-            font=("Helvetica", int(16 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_email_actual.grid(row=1, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
                                    sticky='w')
@@ -659,8 +664,7 @@ class Application(ttk.Window):
         etiqueta_provider = ttk.Label(
             config_window,
             text="Proveedor de Correo:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(15 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_provider.grid(row=2, column=0, pady=int(5 * scaling_factor), sticky='w')
 
@@ -829,8 +833,9 @@ class Application(ttk.Window):
         # Crear la ventana de configuración de credenciales
         config_window = ttk.Toplevel(self)
         config_window.title("Configurar Credenciales de SharePoint")
-        config_window.geometry(f"{window_width}x{window_height}")
-        config_window.configure(background='white')
+
+
+        self.center_window(config_window, window_width, window_height)
 
         # Configuración del grid
         config_window.columnconfigure(0, weight=1)
@@ -838,28 +843,25 @@ class Application(ttk.Window):
         etiqueta_info = ttk.Label(
             config_window,
             text="Ingresa tus credenciales de SharePoint:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(20 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
 
         etiqueta_username = ttk.Label(
             config_window,
             text="Usuario de SharePoint:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(17 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_username.grid(row=1, column=0, pady=int(5 * scaling_factor), sticky='w')
 
-        entrada_username = ttk.Entry(config_window, font=("Helvetica", int(15 * scaling_factor)))
+        entrada_username = ttk.Entry(config_window)
         entrada_username.insert(0, self.config_manager.get_sharepoint_username())
         entrada_username.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor), sticky='ew')
 
         etiqueta_password = ttk.Label(
             config_window,
             text="Contraseña de SharePoint:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(17 * scaling_factor))
+            style='Custom.TLabel'
         )
         etiqueta_password.grid(row=3, column=0, pady=int(5 * scaling_factor), sticky='w')
 
@@ -867,7 +869,7 @@ class Application(ttk.Window):
         frame_password = ttk.Frame(config_window)
         frame_password.grid(row=4, column=0, pady=int(5 * scaling_factor), sticky='ew')
 
-        entrada_password = ttk.Entry(frame_password, show='*', font=("Helvetica", int(15 * scaling_factor)))
+        entrada_password = ttk.Entry(frame_password, show='*')
         entrada_password.grid(row=0, column=0, sticky='ew', padx=int(5 * scaling_factor), pady=int(5 * scaling_factor))
 
         # Cargar imágenes de los íconos de ojo usando rutas seguras
@@ -960,7 +962,7 @@ class Application(ttk.Window):
             # Crear la instancia de FileProcessor
             self.processor = FileProcessor(site_url, file_url)
             self.update_progress("", style='Info.TLabel')
-
+            self.update_progress("********************************************************", style='Delete.TLabel')
             # Descargando el archivo
             self.update_progress("Descargando el informe...", style='Info.TLabel')
             self.update_idletasks()
@@ -1011,8 +1013,12 @@ class Application(ttk.Window):
 
         select_list_window = tk.Toplevel(self)
         select_list_window.title("Seleccionar Lista")
-        select_list_window.geometry("300x150")
-        select_list_window.configure(background='white')
+
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(300 * self.scaling_factor)
+        initial_height = int(150 * self.scaling_factor)
+
+        self.center_window(select_list_window, initial_width, initial_height)
 
         etiqueta_lista = ttk.Label(select_list_window, text="Selecciona la lista para enviar correos:",
                                    style='Custom.TLabel')
@@ -1048,11 +1054,14 @@ class Application(ttk.Window):
 
     def send_mails_to_list(self, list_id):
         self.start_loading_animation()
+        self.update_progress("********************************************************", style='Delete.TLabel')
+
         self.update_progress("Enviando los reportes...", style='Info.TLabel')
         self.update_idletasks()
 
         try:
             if not self.processor:
+                self.update_progress("", style='Info.TLabel')
                 self.update_progress("Primero debes generar los reportes.", style='Warning.TLabel')
                 self.stop_loading_animation()
 
@@ -1065,6 +1074,7 @@ class Application(ttk.Window):
             ]
 
             if not clientes_con_correo:
+                self.update_progress("", style='Info.TLabel')
                 self.update_progress("No hay clientes con correos asociados para enviar.", style='Warning.TLabel')
 
                 self.stop_loading_animation()
@@ -1081,6 +1091,7 @@ class Application(ttk.Window):
                     if not success:
                         if "Se requiere reautenticación" in msg:
                             # Solicitar reautenticación
+                            self.update_progress("", style='Info.TLabel')
                             self.update_progress("Reautenticación requerida. Por favor, inicia sesión nuevamente.",
 
                                                  style='Warning.TLabel')
@@ -1096,6 +1107,7 @@ class Application(ttk.Window):
                 errores_detallados = "\n".join(errores_envio)
                 messagebox.showerror("Errores de Envío", errores_detallados)
             else:
+                self.update_progress("", style='Info.TLabel')
                 self.update_progress("Reportes enviados exitosamente!", style='Success.TLabel')
                 # Programar la limpieza del mensaje de progreso después de 3 segundos
                 #self.after(3000, lambda: self.update_progress("", style='Info.TLabel'))
@@ -1109,14 +1121,20 @@ class Application(ttk.Window):
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         self.scaling_factor = min(screen_width / 1920, screen_height / 1080)  # Basado en 1920x1080
-        window_width = min(int(screen_width * 0.6 * self.scaling_factor), 1200)
-        window_height = min(int(screen_height * 0.8 * self.scaling_factor), 800)
+        window_width = min(int(screen_width * 1), 900)
+        window_height = min(int(screen_height * 0.8), 1400)  # Ajustado para evitar ventanas demasiado altas
+
+        # Calcular la posición x e y para centrar la ventana
+        x = int((screen_width / 2) - (window_width / 2))
+        y = int((screen_height / 2) - (window_height / 2))
 
         # Crear la ventana del gestor de clientes
-        self.client_manager = ttk.Toplevel(self)
+        self.client_manager = tk.Toplevel(self)
         self.client_manager.title("Gestor de Clientes")
-        self.client_manager.geometry(f"{window_width}x{window_height}")
+        self.client_manager.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.client_manager.configure(background='white')
+
+        self.center_window(self.client_manager, window_width, window_height)
 
         # Configuración del grid principal
         self.client_manager.columnconfigure(0, weight=1)
@@ -1129,13 +1147,12 @@ class Application(ttk.Window):
         # Pestaña 1: Por Lista
         tab_por_lista = ttk.Frame(notebook, padding=int(10 * self.scaling_factor))
         notebook.add(tab_por_lista, text="Por Lista")
-        tab_por_lista.columnconfigure(0, weight=3)  # Clientes
-        tab_por_lista.columnconfigure(1, weight=1)  # Aliases
-        tab_por_lista.rowconfigure(3, weight=1)
+        tab_por_lista.columnconfigure(0, weight=1)
+        tab_por_lista.rowconfigure(0, weight=1)
 
         # Frame para la selección de listas
         frame_selection = ttk.Frame(tab_por_lista, padding=int(10 * self.scaling_factor))
-        frame_selection.grid(row=0, column=0, columnspan=2, padx=int(10 * self.scaling_factor),
+        frame_selection.grid(row=0, column=0, padx=int(10 * self.scaling_factor),
                              pady=int(10 * self.scaling_factor), sticky='ew')
         frame_selection.columnconfigure(1, weight=1)
 
@@ -1143,8 +1160,7 @@ class Application(ttk.Window):
         label_select_lista = ttk.Label(
             frame_selection,
             text="Seleccionar Lista:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(16 * self.scaling_factor))
+            style='Custom.TLabel'
         )
         label_select_lista.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
@@ -1165,8 +1181,8 @@ class Application(ttk.Window):
             state='readonly',
             width=int(20 * self.scaling_factor)
         )
-        self.combobox_listas.grid(row=0, column=1, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                                  sticky='ew')
+        self.combobox_listas.grid(row=0, column=1, padx=int(5 * self.scaling_factor),
+                                  pady=int(5 * self.scaling_factor), sticky='ew')
         self.combobox_listas.bind("<<ComboboxSelected>>", self.on_list_select_por_lista)
 
         # Botones para crear y eliminar listas
@@ -1176,8 +1192,8 @@ class Application(ttk.Window):
             command=self.create_new_list,
             style='BlueZodiac.TButton'
         )
-        boton_crear_lista.grid(row=1, column=0, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                               sticky='w')
+        boton_crear_lista.grid(row=1, column=0, padx=int(5 * self.scaling_factor),
+                               pady=int(5 * self.scaling_factor), sticky='w')
 
         boton_eliminar_lista = ttk.Button(
             frame_selection,
@@ -1185,15 +1201,17 @@ class Application(ttk.Window):
             command=self.delete_selected_list,
             style='RedColor.TButton'
         )
-        boton_eliminar_lista.grid(row=1, column=1, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                                  sticky='w')
+        boton_eliminar_lista.grid(row=1, column=1, padx=int(5 * self.scaling_factor),
+                                  pady=int(5 * self.scaling_factor), sticky='w')
+
 
         # Frame para la tabla de clientes por lista
         frame_clientes = ttk.Frame(tab_por_lista, padding=int(10 * self.scaling_factor))
-        frame_clientes.grid(row=2, column=0, padx=int(10 * self.scaling_factor), pady=int(10 * self.scaling_factor),
-                            sticky='nsew')
+        frame_clientes.grid(row=1, column=0, padx=int(10 * self.scaling_factor),
+                            pady=int(10 * self.scaling_factor), sticky='nsew')
         frame_clientes.columnconfigure(0, weight=1)
         frame_clientes.rowconfigure(0, weight=1)
+
 
         # Tabla para mostrar los clientes por lista
         columns = ('ID', 'Nombre', 'Correo')
@@ -1201,7 +1219,8 @@ class Application(ttk.Window):
             frame_clientes,
             columns=columns,
             show='headings',
-            selectmode='browse'
+            selectmode='browse',
+            height=10
         )
         self.tree_clients_por_lista.heading('ID', text='ID')
         self.tree_clients_por_lista.heading('Nombre', text='Nombre')
@@ -1234,13 +1253,12 @@ class Application(ttk.Window):
         # Panel de botones de gestión de clientes por lista
         frame_botones_clientes = ttk.Frame(frame_clientes, padding=int(10 * self.scaling_factor))
         frame_botones_clientes.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
-                                    pady=int(5 * self.scaling_factor),
-                                    sticky='ew')
+                                    pady=int(5 * self.scaling_factor), sticky='ew')
         frame_botones_clientes.columnconfigure(0, weight=1)
         frame_botones_clientes.columnconfigure(1, weight=1)
         frame_botones_clientes.columnconfigure(2, weight=1)
         frame_botones_clientes.columnconfigure(3, weight=1)
-        frame_botones_clientes.columnconfigure(4, weight=1)  # Nueva columna para el nuevo botón
+        frame_botones_clientes.columnconfigure(4, weight=1)
 
         boton_anadir_cliente = ttk.Button(
             frame_botones_clientes,
@@ -1248,8 +1266,8 @@ class Application(ttk.Window):
             command=self.add_client,
             style='BlueZodiac.TButton'
         )
-        boton_anadir_cliente.grid(row=0, column=0, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                                  sticky='ew')
+        boton_anadir_cliente.grid(row=0, column=0, padx=int(5 * self.scaling_factor),
+                                  pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_modificar_cliente = ttk.Button(
             frame_botones_clientes,
@@ -1258,8 +1276,7 @@ class Application(ttk.Window):
             style='Warning.TButton'
         )
         boton_modificar_cliente.grid(row=0, column=1, padx=int(5 * self.scaling_factor),
-                                     pady=int(5 * self.scaling_factor),
-                                     sticky='ew')
+                                     pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_borrar_cliente = ttk.Button(
             frame_botones_clientes,
@@ -1268,8 +1285,7 @@ class Application(ttk.Window):
             style='RedColor.TButton'
         )
         boton_borrar_cliente.grid(row=0, column=2, padx=int(5 * self.scaling_factor),
-                                  pady=int(5 * self.scaling_factor),
-                                  sticky='ew')
+                                  pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Nuevo botón para agregar a una lista existente
         boton_anadir_a_lista_all = ttk.Button(
@@ -1279,8 +1295,7 @@ class Application(ttk.Window):
             style='BlueZodiac.TButton'
         )
         boton_anadir_a_lista_all.grid(row=0, column=3, padx=int(5 * self.scaling_factor),
-                                      pady=int(5 * self.scaling_factor),
-                                      sticky='ew')
+                                      pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Nuevo botón para eliminar de una lista
         boton_eliminar_de_lista = ttk.Button(
@@ -1290,41 +1305,48 @@ class Application(ttk.Window):
             style='RedColor.TButton'
         )
         boton_eliminar_de_lista.grid(row=0, column=4, padx=int(5 * self.scaling_factor),
-                                     pady=int(5 * self.scaling_factor),
-                                     sticky='ew')
+                                     pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Frame para gestión de aliases en "Por Lista"
         frame_aliases = ttk.Frame(tab_por_lista, padding=int(10 * self.scaling_factor))
-        frame_aliases.grid(row=3, column=0, padx=int(10 * self.scaling_factor), pady=int(10 * self.scaling_factor),
-                           sticky='nsew')
+        frame_aliases.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
+                           pady=int(10 * self.scaling_factor), sticky='nsew')
         frame_aliases.columnconfigure(0, weight=1)
-        frame_aliases.rowconfigure(1, weight=1)
+        frame_aliases.rowconfigure(0, weight=1)
 
         label_aliases = ttk.Label(
             frame_aliases,
             text="Aliases del Cliente Seleccionado:",
-            style='Custom.TLabel',
-            font=("Helvetica", int(16 * self.scaling_factor))
+            style='Custom.TLabel'
         )
         label_aliases.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
-        self.listbox_aliases_por_lista = tk.Listbox(frame_aliases, font=("Helvetica", int(10 * self.scaling_factor)))
-        self.listbox_aliases_por_lista.grid(row=1, column=0, sticky='nsew')
+        # Frame que contiene la listbox y los botones de aliases
+        frame_aliases_content = ttk.Frame(frame_aliases)
+        frame_aliases_content.grid(row=1, column=0, sticky='nsew')
+        frame_aliases_content.columnconfigure(0, weight=1)
+        frame_aliases_content.rowconfigure(0, weight=1)
+
+        # Lista para mostrar los aliases del cliente seleccionado en "Por Lista"
+        self.listbox_aliases_por_lista = tk.Listbox(
+            frame_aliases_content,
+            height=12  # Establecer la altura en 5 filas visibles
+        )
+        self.listbox_aliases_por_lista.grid(row=0, column=0, sticky='nsew')
 
         # Scrollbar para la lista de aliases por lista
         scrollbar_aliases = ttk.Scrollbar(
-            frame_aliases,
+            frame_aliases_content,
             orient=tk.VERTICAL,
             command=self.listbox_aliases_por_lista.yview
         )
-        scrollbar_aliases.grid(row=1, column=1, sticky='ns')
+        scrollbar_aliases.grid(row=0, column=1, sticky='ns')
         self.listbox_aliases_por_lista.configure(yscrollcommand=scrollbar_aliases.set)
 
-        # Panel de botones para gestión de aliases por lista
-        frame_botones_aliases = ttk.Frame(frame_aliases, padding=int(10 * self.scaling_factor))
-        frame_botones_aliases.grid(row=2, column=0, pady=int(5 * self.scaling_factor), sticky='ew')
+        # Panel de botones para gestión de aliases por lista (al costado derecho)
+        frame_botones_aliases = ttk.Frame(frame_aliases_content)
+        frame_botones_aliases.grid(row=0, column=2, padx=int(5 * self.scaling_factor), sticky='ns')
         frame_botones_aliases.columnconfigure(0, weight=1)
-        frame_botones_aliases.columnconfigure(1, weight=1)
 
         boton_anadir_alias = ttk.Button(
             frame_botones_aliases,
@@ -1332,8 +1354,7 @@ class Application(ttk.Window):
             command=self.add_alias,
             style='BlueZodiac.TButton'
         )
-        boton_anadir_alias.grid(row=0, column=0, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                                sticky='ew')
+        boton_anadir_alias.grid(row=0, column=0, padx=0, pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_borrar_alias = ttk.Button(
             frame_botones_aliases,
@@ -1341,8 +1362,7 @@ class Application(ttk.Window):
             command=self.delete_alias,
             style='RedColor.TButton'
         )
-        boton_borrar_alias.grid(row=0, column=1, padx=int(5 * self.scaling_factor), pady=int(5 * self.scaling_factor),
-                                sticky='ew')
+        boton_borrar_alias.grid(row=1, column=0, padx=0, pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Pestaña 2: "Todos los Clientes"
         tab_todos_clientes = ttk.Frame(notebook, padding=int(10 * self.scaling_factor))
@@ -1352,8 +1372,8 @@ class Application(ttk.Window):
 
         # Frame para la lista de todos los clientes
         frame_all_clients = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
-        frame_all_clients.grid(row=0, column=0, padx=int(10 * self.scaling_factor), pady=int(10 * self.scaling_factor),
-                               sticky='nsew')
+        frame_all_clients.grid(row=0, column=0, padx=int(10 * self.scaling_factor),
+                               pady=int(10 * self.scaling_factor), sticky='nsew')
         frame_all_clients.columnconfigure(0, weight=1)
         frame_all_clients.rowconfigure(0, weight=1)
 
@@ -1363,7 +1383,8 @@ class Application(ttk.Window):
             frame_all_clients,
             columns=columns_all,
             show='headings',
-            selectmode='browse'
+            selectmode='browse',
+            height=10  # Establece una altura fija para la tabla en número de filas visibles
         )
         self.tree_all_clients.heading('ID', text='ID')
         self.tree_all_clients.heading('Nombre', text='Nombre')
@@ -1396,12 +1417,11 @@ class Application(ttk.Window):
         # Panel de botones para gestión de todos los clientes
         frame_botones_all_clients = ttk.Frame(frame_all_clients, padding=int(10 * self.scaling_factor))
         frame_botones_all_clients.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
-                                       pady=int(5 * self.scaling_factor),
-                                       sticky='ew')
+                                       pady=int(5 * self.scaling_factor), sticky='ew')
         frame_botones_all_clients.columnconfigure(0, weight=1)
         frame_botones_all_clients.columnconfigure(1, weight=1)
         frame_botones_all_clients.columnconfigure(2, weight=1)
-        frame_botones_all_clients.columnconfigure(3, weight=1)  # Nueva columna para el nuevo botón
+        frame_botones_all_clients.columnconfigure(3, weight=1)
 
         boton_anadir_cliente_all = ttk.Button(
             frame_botones_all_clients,
@@ -1410,8 +1430,7 @@ class Application(ttk.Window):
             style='BlueZodiac.TButton'
         )
         boton_anadir_cliente_all.grid(row=0, column=0, padx=int(5 * self.scaling_factor),
-                                      pady=int(5 * self.scaling_factor),
-                                      sticky='ew')
+                                      pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_modificar_cliente_all = ttk.Button(
             frame_botones_all_clients,
@@ -1420,8 +1439,7 @@ class Application(ttk.Window):
             style='Warning.TButton'
         )
         boton_modificar_cliente_all.grid(row=0, column=1, padx=int(5 * self.scaling_factor),
-                                         pady=int(5 * self.scaling_factor),
-                                         sticky='ew')
+                                         pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_borrar_cliente_all = ttk.Button(
             frame_botones_all_clients,
@@ -1430,8 +1448,7 @@ class Application(ttk.Window):
             style='RedColor.TButton'
         )
         boton_borrar_cliente_all.grid(row=0, column=2, padx=int(5 * self.scaling_factor),
-                                      pady=int(5 * self.scaling_factor),
-                                      sticky='ew')
+                                      pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Nuevo botón para agregar a una lista existente
         boton_anadir_a_lista_all = ttk.Button(
@@ -1441,36 +1458,48 @@ class Application(ttk.Window):
             style='BlueZodiac.TButton'
         )
         boton_anadir_a_lista_all.grid(row=0, column=3, padx=int(5 * self.scaling_factor),
-                                      pady=int(5 * self.scaling_factor),
-                                      sticky='ew')
+                                      pady=int(5 * self.scaling_factor), sticky='ew')
 
-        # Nuevo botón para eliminar de una lista
-        # Este botón solo se agrega en la pestaña "Por Lista"
-        # Por lo tanto, no es necesario agregarlo aquí en "Todos los Clientes"
+        # Frame para gestión de aliases en "Todos los Clientes"
+        frame_aliases_all = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
+        frame_aliases_all.grid(row=1, column=0, padx=int(10 * self.scaling_factor),
+                               pady=int(10 * self.scaling_factor), sticky='nsew')
+        frame_aliases_all.columnconfigure(0, weight=1)
+        frame_aliases_all.rowconfigure(0, weight=1)
 
-        # Lista para mostrar los aliases de todos los clientes
-        self.listbox_aliases_all_clients = tk.Listbox(
-            frame_all_clients,
-            font=("Helvetica", int(10 * self.scaling_factor))
+        label_aliases_all = ttk.Label(
+            frame_aliases_all,
+            text="Aliases del Cliente Seleccionado:",
+            style='Custom.TLabel'
         )
-        self.listbox_aliases_all_clients.grid(row=3, column=0, columnspan=2, sticky='nsew',
-                                              padx=(0, int(10 * self.scaling_factor)))
+        label_aliases_all.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+
+        # Frame que contiene la listbox y los botones de aliases
+        frame_aliases_content_all = ttk.Frame(frame_aliases_all)
+        frame_aliases_content_all.grid(row=1, column=0, sticky='nsew')
+        frame_aliases_content_all.columnconfigure(0, weight=1)
+        frame_aliases_content_all.rowconfigure(0, weight=1)
+
+        # Lista para mostrar los aliases del cliente seleccionado en "Todos los Clientes"
+        self.listbox_aliases_all_clients = tk.Listbox(
+            frame_aliases_content_all,
+            height=15  # Establecer la altura en 15 filas visibles
+        )
+        self.listbox_aliases_all_clients.grid(row=0, column=0, sticky='nsew')
 
         # Scrollbar para la lista de aliases de todos los clientes
         scrollbar_aliases_all_clients = ttk.Scrollbar(
-            frame_all_clients,
+            frame_aliases_content_all,
             orient=tk.VERTICAL,
             command=self.listbox_aliases_all_clients.yview
         )
-        scrollbar_aliases_all_clients.grid(row=3, column=2, sticky='ns', padx=(0, int(10 * self.scaling_factor)))
+        scrollbar_aliases_all_clients.grid(row=0, column=1, sticky='ns')
         self.listbox_aliases_all_clients.configure(yscrollcommand=scrollbar_aliases_all_clients.set)
 
-        # Panel de botones para gestión de aliases de todos los clientes
-        frame_botones_aliases_all_clients = ttk.Frame(frame_all_clients, padding=int(10 * self.scaling_factor))
-        frame_botones_aliases_all_clients.grid(row=4, column=0, columnspan=3, pady=int(5 * self.scaling_factor),
-                                               sticky='ew')
+        # Panel de botones para gestión de aliases de todos los clientes (al costado derecho)
+        frame_botones_aliases_all_clients = ttk.Frame(frame_aliases_content_all)
+        frame_botones_aliases_all_clients.grid(row=0, column=2, padx=int(5 * self.scaling_factor), sticky='ns')
         frame_botones_aliases_all_clients.columnconfigure(0, weight=1)
-        frame_botones_aliases_all_clients.columnconfigure(1, weight=1)
 
         boton_anadir_alias_all = ttk.Button(
             frame_botones_aliases_all_clients,
@@ -1478,9 +1507,7 @@ class Application(ttk.Window):
             command=self.add_alias,
             style='BlueZodiac.TButton'
         )
-        boton_anadir_alias_all.grid(row=0, column=0, padx=int(5 * self.scaling_factor),
-                                    pady=int(5 * self.scaling_factor),
-                                    sticky='ew')
+        boton_anadir_alias_all.grid(row=0, column=0, padx=0, pady=int(5 * self.scaling_factor), sticky='ew')
 
         boton_borrar_alias_all = ttk.Button(
             frame_botones_aliases_all_clients,
@@ -1488,9 +1515,7 @@ class Application(ttk.Window):
             command=self.delete_alias,
             style='RedColor.TButton'
         )
-        boton_borrar_alias_all.grid(row=0, column=1, padx=int(5 * self.scaling_factor),
-                                    pady=int(5 * self.scaling_factor),
-                                    sticky='ew')
+        boton_borrar_alias_all.grid(row=1, column=0, padx=0, pady=int(5 * self.scaling_factor), sticky='ew')
 
         # Cargar todos los clientes
         self.load_all_clients()
@@ -1617,11 +1642,12 @@ class Application(ttk.Window):
         ventana_asignar = ttk.Toplevel(self.client_manager)
         ventana_asignar.title(f"Añadir '{client_name}' a una Lista")
 
-        # Ajuste del tamaño según el escalado, con un tamaño máximo para evitar ventanas demasiado grandes
-        width = min(int(600 * self.scaling_factor), 800)
-        height = min(int(250 * self.scaling_factor), 400)
-        ventana_asignar.geometry(f"{width}x{height}")
-        ventana_asignar.configure(background='white')
+
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(600 * self.scaling_factor)
+        initial_height = int(250 * self.scaling_factor)
+
+        self.center_window(ventana_asignar, initial_width, initial_height)
 
         # Configuración del grid
         ventana_asignar.columnconfigure(0, weight=1)
@@ -1639,7 +1665,7 @@ class Application(ttk.Window):
             frame_principal,
             text="Seleccionar Lista:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_lista.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
@@ -1648,7 +1674,7 @@ class Application(ttk.Window):
             values=available_lists,
             state='readonly',
             width=int(20 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         combobox_lists.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
                             sticky='ew')
@@ -1777,11 +1803,12 @@ class Application(ttk.Window):
         ventana_agregar = ttk.Toplevel(self.client_manager)
         ventana_agregar.title("Agregar Cliente")
 
-        # Ajuste del tamaño según el escalado
-        width = min(int(600 * self.scaling_factor), 800)
-        height = min(int(250 * self.scaling_factor), 500)
-        ventana_agregar.geometry(f"{width}x{height}")
-        ventana_agregar.configure(background='white')
+
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(600 * self.scaling_factor)
+        initial_height = int(250 * self.scaling_factor)
+
+        self.center_window(ventana_agregar, initial_width, initial_height)
 
         # Configurar el grid para una mejor disposición de los widgets
         ventana_agregar.columnconfigure(0, weight=1)
@@ -1799,14 +1826,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Nombre del Cliente:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_nombre = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
                             sticky='ew')
@@ -1816,14 +1843,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Correo Electrónico:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_correo = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
                             sticky='ew')
@@ -1896,11 +1923,13 @@ class Application(ttk.Window):
         ventana_editar = ttk.Toplevel(self.client_manager)
         ventana_editar.title(f"Editar Cliente - {cliente_nombre}")
 
-        # Ajuste del tamaño según el escalado, con un tamaño máximo para evitar ventanas demasiado grandes
-        width = min(int(600 * self.scaling_factor), 1000)
-        height = min(int(250 * self.scaling_factor), 900)
-        ventana_editar.geometry(f"{width}x{height}")
-        ventana_editar.configure(background='white')
+
+
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(600 * self.scaling_factor)
+        initial_height = int(250 * self.scaling_factor)
+
+        self.center_window(ventana_editar, initial_width, initial_height)
 
         # Configuración del grid de la ventana
         ventana_editar.columnconfigure(0, weight=1)
@@ -1920,14 +1949,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Nombre del Cliente:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_nombre = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_nombre.insert(0, cliente_nombre)
         entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
@@ -1938,14 +1967,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Correo Electrónico:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_correo = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_correo.insert(0, correo_actual)
         entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
@@ -2053,11 +2082,12 @@ class Application(ttk.Window):
         ventana_alias = ttk.Toplevel(self.client_manager)
         ventana_alias.title("Agregar Alias")
 
-        # Ajuste del tamaño según el escalado, con un tamaño máximo para evitar ventanas demasiado grandes
-        width = min(int(600 * self.scaling_factor), 800)
-        height = min(int(250 * self.scaling_factor), 400)
-        ventana_alias.geometry(f"{width}x{height}")
-        ventana_alias.configure(background='white')
+
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(600 * self.scaling_factor)
+        initial_height = int(250 * self.scaling_factor)
+
+        self.center_window(ventana_alias, initial_width, initial_height)
 
         # Configurar el grid para una mejor disposición de los widgets
         ventana_alias.columnconfigure(0, weight=1)
@@ -2075,14 +2105,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Nuevo Alias:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_alias.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_alias = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_alias.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
                            sticky='ew')
@@ -2155,6 +2185,7 @@ class Application(ttk.Window):
         self.destroy()
 
     def create_new_list(self):
+
         def guardar_lista():
             nombre_lista = entrada_nombre.get().strip()
             if not nombre_lista:
@@ -2174,11 +2205,13 @@ class Application(ttk.Window):
         ventana_nueva_lista = ttk.Toplevel(self.client_manager)
         ventana_nueva_lista.title("Crear Nueva Lista")
 
-        # Ajustar el tamaño según el escalado
-        width = min(int(400 * self.scaling_factor), 800)
-        height = min(int(150 * self.scaling_factor), 300)
-        ventana_nueva_lista.geometry(f"{width}x{height}")
+
         ventana_nueva_lista.configure(background='white')
+        # Ajustar el tamaño inicial de la ventana según el escalado
+        initial_width = int(400 * self.scaling_factor)
+        initial_height = int(150 * self.scaling_factor)
+
+        self.center_window(ventana_nueva_lista, initial_width, initial_height)
 
         # Configurar el grid para una mejor disposición de los widgets
         ventana_nueva_lista.columnconfigure(0, weight=1)
@@ -2196,14 +2229,14 @@ class Application(ttk.Window):
             frame_principal,
             text="Nombre de la Lista:",
             style='Custom.TLabel',
-            font=("Helvetica", int(12 * self.scaling_factor))
+            #, int(12 * self.scaling_factor))
         )
         etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
         entrada_nombre = ttk.Entry(
             frame_principal,
             width=int(30 * self.scaling_factor),
-            font=("Helvetica", int(10 * self.scaling_factor))
+            #, int(10 * self.scaling_factor))
         )
         entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
                             sticky='ew')
@@ -2426,3 +2459,21 @@ class Application(ttk.Window):
             list_id = self.db.get_list_id_by_name("Sin asignar")
             self.db.delete_list(list_id)
             print("La lista 'Sin asignar' fue eliminada después de la importación.")
+
+    #VENTANAS
+
+    def center_window(self, window, width, height):
+        """
+        Centra una ventana en la pantalla.
+
+        :param window: La ventana a centrar (tk.Toplevel o la ventana principal).
+        :param width: Ancho de la ventana.
+        :param height: Alto de la ventana.
+        """
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        x = int((screen_width / 2) - (width / 2))
+        y = int((screen_height / 2) - (height / 2))
+        window.geometry(f"{width}x{height}+{x}+{y}")
+
+

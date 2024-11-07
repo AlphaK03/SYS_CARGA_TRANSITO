@@ -1,7 +1,6 @@
 # src/utils/token_cache.py
 import msal
 import os
-import json
 
 class FileTokenCache:
     def __init__(self, cache_file='microsoft_token_cache.json'):
