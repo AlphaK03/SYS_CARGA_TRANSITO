@@ -46,7 +46,6 @@ class ConfigManager:
             "google_credentials": None,
             "microsoft_credentials": None,
             "sharepoint_site_url": "",
-            "sharepoint_username": "",
             "sharepoint_file_url": ""
         }
 
@@ -66,18 +65,6 @@ class ConfigManager:
         self.config['email'] = email
         self.save_config()
 
-    # Métodos para manejar las contraseñas usando keyring
-    def get_app_password(self) -> str:
-        return keyring.get_password('ProyectoASW_AppPassword', self.get_email()) or ''
-
-    def set_app_password(self, password: str):
-        keyring.set_password('ProyectoASW_AppPassword', self.get_email(), password)
-
-    def get_sharepoint_password(self) -> str:
-        return keyring.get_password('ProyectoASW_SharePointPassword', self.get_sharepoint_username()) or ''
-
-    def set_sharepoint_password(self, password: str):
-        keyring.set_password('ProyectoASW_SharePointPassword', self.get_sharepoint_username(), password)
 
     # Métodos para SharePoint
     def get_sharepoint_site_url(self) -> str:
@@ -85,13 +72,6 @@ class ConfigManager:
 
     def set_sharepoint_site_url(self, site_url: str):
         self.config['sharepoint_site_url'] = site_url
-        self.save_config()
-
-    def get_sharepoint_username(self) -> str:
-        return self.config.get('sharepoint_username', '')
-
-    def set_sharepoint_username(self, username: str):
-        self.config['sharepoint_username'] = username
         self.save_config()
 
     def get_sharepoint_file_url(self) -> str:

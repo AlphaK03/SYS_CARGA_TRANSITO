@@ -2,6 +2,8 @@
 
 import os
 import sys
+
+import requests
 import win32com.client
 import pandas as pd
 from office365.runtime.auth.authentication_context import AuthenticationContext
@@ -54,25 +56,41 @@ def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output
     workbook.save(output_file)
 
 class FileProcessor:
-    """
-    Clase para procesar archivos Excel y generar reportes por cliente, y manejar la base de datos de clientes.
-    """
-
-    def __init__(self, site_url: str, sharepoint_file_url: str):
-        """
-        Inicializa una instancia de FileProcessor.
-
-        Args:
-            site_url (str): URL del sitio de SharePoint.
-            sharepoint_file_url (str): Ruta relativa al archivo en SharePoint.
-        """
+    def __init__(self, site_url: str, sharepoint_file_url: str, access_token: str):
         self.site_url = site_url
         self.sharepoint_file_url = sharepoint_file_url
+        self.access_token = access_token
         self.output_dir = os.path.join('data', 'Clientes_Separados')
         self.db = ClientDatabase()
         self.config_manager = ConfigManager()
-        self.ctx = None  # SharePoint context
         self.local_file_path = None  # Ruta al archivo descargado
+
+    def download_file(self):
+        if not self.access_token:
+            raise Exception("El token de acceso no está disponible.")
+
+        # Crear carpeta temporal si no existe
+        os.makedirs('data/temp', exist_ok=True)
+        file_name = os.path.basename(self.sharepoint_file_url)
+        self.local_file_path = os.path.join('data/temp', file_name)
+
+        headers = {
+            'Authorization': f'Bearer {self.access_token}',
+            'Accept': 'application/json;odata=verbose'
+        }
+
+        # Construir la URL completa del archivo
+        download_url = f"{self.site_url}/_api/web/GetFileByServerRelativeUrl('{self.sharepoint_file_url}')/$value"
+
+        try:
+            response = requests.get(download_url, headers=headers)
+            response.raise_for_status()
+            with open(self.local_file_path, 'wb') as local_file:
+                local_file.write(response.content)
+            print(f"Archivo descargado exitosamente en {self.local_file_path}.")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"No se pudo descargar el archivo: {e}")
+
 
     def authenticate_sharepoint(self, username: str, password: str):
         """
@@ -91,30 +109,6 @@ class FileProcessor:
         else:
             raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
 
-    def download_file(self, username: str, password: str) -> str:
-        """
-        Descarga el archivo de SharePoint y lo guarda en una ubicación temporal.
-
-        Args:
-            username (str): Nombre de usuario de SharePoint.
-            password (str): Contraseña de SharePoint.
-
-        Returns:
-            str: Ruta al archivo descargado localmente.
-        """
-        if not self.ctx:
-            self.authenticate_sharepoint(username, password)
-
-        # Crear carpeta temporal si no existe
-        os.makedirs('data/temp', exist_ok=True)
-        file_name = os.path.basename(self.sharepoint_file_url)
-        self.local_file_path = os.path.join('data/temp', file_name)
-
-        with open(self.local_file_path, "wb") as local_file:
-            file = self.ctx.web.get_file_by_server_relative_url(self.sharepoint_file_url)
-            file.download(local_file)
-            self.ctx.execute_query()
-        return self.local_file_path
 
     def run_macro(self):
         """
@@ -157,7 +151,6 @@ class FileProcessor:
                         raise Exception(f"Error al ejecutar la macro '{macro_name}': {str(e)}")
 
             # Esperar 2 segundos antes de cerrar
-            time.sleep(2)
 
             # Cerrar el archivo de Excel y la instancia
             workbook.Close(SaveChanges=True)

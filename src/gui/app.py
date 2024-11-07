@@ -110,8 +110,6 @@ class AuthHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(html_content.encode('utf-8'))
 
 
-
-
 def init_styles():
     style = ttk.Style()
 
@@ -265,22 +263,29 @@ class Application(ttk.Window):
 
         self.configure(background='white')  # Fondo blanco para la ventana
 
-        # Inicialización del token_cache antes de msal_app y EmailSender
-        self.token_cache = FileTokenCache()  # Inicialización del token_cache
+        # Crear cachés de tokens separados
+        self.email_token_cache = FileTokenCache(cache_file='email_token_cache.json')
+        self.sharepoint_token_cache = FileTokenCache(cache_file='sharepoint_token_cache.json')
 
-        # Inicializar PublicClientApplication una sola vez
-        self.msal_app = PublicClientApplication(
+        # Configurar MSAL para la cuenta de origen (correo) con "common"
+        self.email_msal_app = PublicClientApplication(
+            client_id=MICROSOFT_CLIENT_ID,
+            authority='https://login.microsoftonline.com/common',
+            token_cache=self.email_token_cache.cache  # Usar el caché específico para correo
+        )
+
+        # Configurar MSAL para SharePoint con el TENANT_ID específico
+        self.sharepoint_msal_app = PublicClientApplication(
             client_id=MICROSOFT_CLIENT_ID,
             authority=f'https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}',
-            token_cache=self.token_cache.cache
+            token_cache=self.sharepoint_token_cache.cache  # Usar el caché específico para SharePoint
         )
 
         # Inicializar EmailSender pasando la instancia de msal_app
-        self.email_sender = EmailSender(self.msal_app)
+        self.email_sender = EmailSender(self.email_msal_app)
 
         init_styles()  # Inicializar estilos personalizados
         self.create_widgets()  # Crear widgets
-        self.check_credentials()  # Verificar credenciales
 
     def get_scaling_factor(self):
         # Obtener el factor de escalado de DPI
@@ -294,6 +299,54 @@ class Application(ttk.Window):
         else:
             return self.tk.call('tk', 'scaling')
 
+    def get_email_access_token(self):
+        """Obtiene el token para la cuenta de origen (correo) usando el tenant 'common'."""
+        scopes = ['Mail.Send']  # Ajusta el scope según sea necesario
+        accounts = self.email_msal_app.get_accounts()
+        result = None
+
+        if accounts:
+            result = self.email_msal_app.acquire_token_silent(scopes, account=accounts[0])
+
+        if not result or 'access_token' not in result:
+            result = self.email_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
+            self.email_token_cache.cache = self.email_msal_app.token_cache  # Actualiza el caché
+            self.email_token_cache.save(self.email_msal_app)  # Guarda el token en caché después de autenticar
+
+        if "access_token" in result:
+            return result['access_token']
+        else:
+            error_message = result.get('error_description', 'No se pudo obtener el token de acceso para el correo.')
+            messagebox.showerror("Error", f"Error al adquirir el token de acceso para el correo: {error_message}")
+            return None
+
+    def get_sharepoint_access_token(self):
+        """Obtiene el token para SharePoint usando el tenant específico."""
+        scopes = ['https://chcconsultorescr.sharepoint.com/.default']
+        accounts = self.sharepoint_msal_app.get_accounts()
+        result = None
+
+        if accounts:
+            result = self.sharepoint_msal_app.acquire_token_silent(scopes, account=accounts[0])
+
+        if not result or 'access_token' not in result:
+            result = self.sharepoint_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
+            self.sharepoint_token_cache.cache = self.sharepoint_msal_app.token_cache  # Actualiza el caché
+            self.sharepoint_token_cache.save(self.sharepoint_msal_app)  # Guarda el token en caché después de autenticar
+
+        if "access_token" in result:
+            return result['access_token']
+        else:
+            error_message = result.get('error_description', 'No se pudo obtener el token de acceso para SharePoint.')
+            messagebox.showerror("Error", f"Error al adquirir el token de acceso para SharePoint: {error_message}")
+            return None
+
+    def clear_email_cache(self):
+        self.email_token_cache.clear_cache()
+
+    def clear_sharepoint_cache(self):
+        self.sharepoint_token_cache.clear_cache()
+
     def create_widgets(self):
         # Crear la barra de menú
         menu_bar = tk.Menu(self)
@@ -302,7 +355,7 @@ class Application(ttk.Window):
         # Menú "Configuración"
         config_menu = tk.Menu(menu_bar, tearoff=0)
         config_menu.add_command(label="Cambiar correo de origen", command=self.open_config_window)
-        config_menu.add_command(label="Cambiar correo de SharePoint", command=self.open_sharepoint_credentials_window)
+        #config_menu.add_command(label="Cambiar correo de SharePoint", command=self.open_sharepoint_credentials_window)
         config_menu.add_command(label="Salir", command=self.on_closing)
         menu_bar.add_cascade(label="Configuración", menu=config_menu)
 
@@ -613,12 +666,6 @@ class Application(ttk.Window):
         self.update_idletasks()  # Actualiza la interfaz para reflejar el cambio inmediatamente
 
 
-    def check_credentials(self):
-        email = self.config_manager.get_email()
-        app_password = self.config_manager.get_app_password()
-        if not email or not app_password:
-            self.open_config_window()
-
     def open_config_window(self):
         config_window = tk.Toplevel(self)  # Cambiado de ttk.Toplevel a tk.Toplevel
         config_window.title("Configuración de Correo y Autenticación")
@@ -715,7 +762,7 @@ class Application(ttk.Window):
                     redirect_uri = REDIRECT_URI
                     scopes = EmailSender.MS_SCOPES
 
-                    app = self.msal_app  # Usar la instancia existente
+                    app = self.email_msal_app  # Usar la instancia existente
                     result = app.acquire_token_silent(scopes, account=None)
 
                     if not result:
@@ -760,7 +807,7 @@ class Application(ttk.Window):
 
                         result = app.acquire_token_by_authorization_code(auth_code[0], scopes=scopes,
                                                                          redirect_uri=redirect_uri)
-                        self.token_cache.save(app)
+                        self.email_token_cache.save(app)
 
                     if "access_token" in result:
                         user_info = get_microsoft_user_info(result['access_token'])
@@ -797,7 +844,7 @@ class Application(ttk.Window):
             try:
                 # Limpiar credenciales almacenadas
                 self.config_manager.clear_credentials()
-                self.token_cache.clear_cache()
+                self.email_token_cache.clear_cache()
                 etiqueta_email_actual.config(text="No autenticado")
 
                 messagebox.showinfo("Cierre de sesión", "Sesión cerrada. Por favor, vuelve a iniciar sesión.")
@@ -822,151 +869,27 @@ class Application(ttk.Window):
         config_window.grab_set()
         self.wait_window(config_window)
 
-    def open_sharepoint_credentials_window(self):
-        # Obtener la resolución de pantalla y calcular el factor de escala
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        scaling_factor = min(screen_width / 1920, screen_height / 1080)  # Basado en 1920x1080
-        window_width = min(int(screen_width * 0.3 * scaling_factor), 1200)  # 30% del ancho o máximo 1200 px
-        window_height = min(int(screen_height * 0.4 * scaling_factor), 900)
-
-        # Crear la ventana de configuración de credenciales
-        config_window = ttk.Toplevel(self)
-        config_window.title("Configurar Credenciales de SharePoint")
-
-
-        self.center_window(config_window, window_width, window_height)
-
-        # Configuración del grid
-        config_window.columnconfigure(0, weight=1)
-
-        etiqueta_info = ttk.Label(
-            config_window,
-            text="Ingresa tus credenciales de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
-
-        etiqueta_username = ttk.Label(
-            config_window,
-            text="Usuario de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_username.grid(row=1, column=0, pady=int(5 * scaling_factor), sticky='w')
-
-        entrada_username = ttk.Entry(config_window)
-        entrada_username.insert(0, self.config_manager.get_sharepoint_username())
-        entrada_username.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor), sticky='ew')
-
-        etiqueta_password = ttk.Label(
-            config_window,
-            text="Contraseña de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_password.grid(row=3, column=0, pady=int(5 * scaling_factor), sticky='w')
-
-        # Configuración de la entrada de contraseña con alternancia de visibilidad
-        frame_password = ttk.Frame(config_window)
-        frame_password.grid(row=4, column=0, pady=int(5 * scaling_factor), sticky='ew')
-
-        entrada_password = ttk.Entry(frame_password, show='*')
-        entrada_password.grid(row=0, column=0, sticky='ew', padx=int(5 * scaling_factor), pady=int(5 * scaling_factor))
-
-        # Cargar imágenes de los íconos de ojo usando rutas seguras
-        try:
-            eye_open_path = get_resource_path('resources/eye_open.png')
-            eye_closed_path = get_resource_path('resources/eye_closed.png')
-
-            # Redimensionar los iconos de acuerdo al factor de escala
-            icon_size = int(20 * scaling_factor)
-            eye_open_img = Image.open(eye_open_path)
-            eye_closed_img = Image.open(eye_closed_path)
-            eye_open_photo = ImageTk.PhotoImage(eye_open_img.resize((icon_size, icon_size)))
-            eye_closed_photo = ImageTk.PhotoImage(eye_closed_img.resize((icon_size, icon_size)))
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al cargar iconos de visibilidad de contraseña: {e}")
-            eye_open_photo = eye_closed_photo = None
-
-        password_visible = False
-
-        def toggle_password_visibility():
-            nonlocal password_visible
-            if password_visible:
-                entrada_password.config(show='*')
-                boton_toggle.config(image=eye_closed_photo)
-                password_visible = False
-            else:
-                entrada_password.config(show='')
-                boton_toggle.config(image=eye_open_photo)
-                password_visible = True
-
-        boton_toggle = ttk.Button(
-            frame_password,
-            image=eye_closed_photo,
-            command=toggle_password_visibility,
-            style='TButton'
-        )
-        boton_toggle.grid(row=0, column=1, padx=int(5 * scaling_factor), sticky='e')
-        frame_password.columnconfigure(0, weight=1)
-
-        # Función para guardar las credenciales
-        def guardar_sharepoint_credentials():
-            username = entrada_username.get().strip()
-            password = entrada_password.get().strip()
-
-            if not username or not password:
-                messagebox.showwarning("Advertencia", "Por favor, completa todos los campos.")
-                return
-
-            try:
-                if check_sharepoint_credentials(username, password):
-                    self.config_manager.set_sharepoint_username(username)
-                    self.config_manager.set_sharepoint_password(password)
-                    config_window.destroy()
-                    messagebox.showinfo("Éxito", "Credenciales de SharePoint guardadas exitosamente.")
-                else:
-                    messagebox.showerror("Error",
-                                         "Las credenciales de SharePoint son incorrectas. Por favor, intenta nuevamente.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Ocurrió un error al verificar las credenciales: {e}")
-
-        save_button = ttk.Button(
-            config_window,
-            text="Guardar",
-            command=guardar_sharepoint_credentials,
-            style='GreenSuccess.TButton'
-        )
-        save_button.grid(row=5, column=0, padx=int(5 * scaling_factor), pady=int(15 * scaling_factor), sticky='ew')
-
-        # Configurar la ventana como modal
-        config_window.columnconfigure(0, weight=1)
-        config_window.transient(self)
-        config_window.grab_set()
-        self.wait_window(config_window)
 
     def filter_and_generate(self):
         # URLs fijas dentro del código
         site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
         file_url = '/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas en tránsito_Prueba conexión Power BI.xlsm'
-        username = self.config_manager.get_sharepoint_username()
-        password = self.config_manager.get_sharepoint_password()
 
-        if not username or not password:
-            self.update_progress("Por favor, configura tu usuario y contraseña de SharePoint.", style='Warning.TLabel')
-            self.stop_loading_animation()
-            self.open_sharepoint_credentials_window()
+        # Obtener el token de acceso para SharePoint
+        access_token = self.get_sharepoint_access_token()
+        if not access_token:
+            self.update_progress("No se pudo obtener un token de acceso para SharePoint.", style='Error.TLabel')
             return
 
         try:
             # Crear la instancia de FileProcessor
-            self.processor = FileProcessor(site_url, file_url)
+            self.processor = FileProcessor(site_url, file_url, access_token)
             self.update_progress("", style='Info.TLabel')
             self.update_progress("********************************************************", style='Delete.TLabel')
             # Descargando el archivo
             self.update_progress("Descargando el informe...", style='Info.TLabel')
             self.update_idletasks()
-            self.processor.download_file(username, password)
+            self.processor.download_file()
             self.update_progress("********************************************************", style='Delete.TLabel')
             # Ejecutar la macro
             self.update_progress("Actualizando el informe...", style='Info.TLabel')
@@ -1080,7 +1003,7 @@ class Application(ttk.Window):
                 self.stop_loading_animation()
                 return
 
-            sender = EmailSender(self.token_cache)
+            sender = EmailSender(self.email_msal_app)
             errores_envio = []
             for client_id, cliente, correo in clientes_con_correo:
                 archivo_path = self.processor.get_client_file(cliente)
