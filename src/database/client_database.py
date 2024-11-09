@@ -414,3 +414,20 @@ class ClientDatabase:
         cursor = self.connection.cursor()
         cursor.execute("SELECT 1 FROM clientes WHERE nombre = ?", (client_name,))
         return cursor.fetchone() is not None
+
+    def is_client_in_list(self, client_id: int, list_id: int) -> bool:
+        """
+        Verifica si un cliente está en una lista específica.
+
+        Args:
+            client_id (int): ID del cliente.
+            list_id (int): ID de la lista.
+
+        Returns:
+            bool: True si el cliente está en la lista, False en caso contrario.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            SELECT 1 FROM client_list WHERE client_id = ? AND list_id = ?
+        ''', (client_id, list_id))
+        return cursor.fetchone() is not None
