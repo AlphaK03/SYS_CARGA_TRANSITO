@@ -69,19 +69,30 @@ class ClientDatabase:
 
     # Métodos para manejar clientes y aliases
 
-    def add_client(self, nombre: str, correo: str = '(correo sin definir)'):
+    def add_client(self, nombre: str, correo: str = '(correo sin definir)', client_id: Optional[int] = None):
         """
         Agrega un nuevo cliente a la base de datos.
+        Si se proporciona client_id, lo utiliza; de lo contrario, auto-incrementa.
 
         Args:
             nombre (str): Nombre del cliente.
             correo (str): Correo electrónico del cliente.
+            client_id (Optional[int]): ID del cliente. Si se proporciona, se usa para la inserción.
         """
         cursor = self.connection.cursor()
-        cursor.execute('''
-            INSERT INTO clientes (nombre, correo)
-            VALUES (?, ?)
-        ''', (nombre, correo))
+        if client_id is not None:
+            try:
+                cursor.execute('''
+                    INSERT INTO clientes (id, nombre, correo)
+                    VALUES (?, ?, ?)
+                ''', (client_id, nombre, correo))
+            except sqlite3.IntegrityError as e:
+                raise Exception(f"No se pudo agregar el cliente con ID {client_id}: {e}")
+        else:
+            cursor.execute('''
+                INSERT INTO clientes (nombre, correo)
+                VALUES (?, ?)
+            ''', (nombre, correo))
         self.connection.commit()
 
     def update_client_name_and_email(self, client_id: int, nombre: str, correo: str):
@@ -431,3 +442,19 @@ class ClientDatabase:
             SELECT 1 FROM client_list WHERE client_id = ? AND list_id = ?
         ''', (client_id, list_id))
         return cursor.fetchone() is not None
+
+    def update_alias(self, alias_id: int, new_alias: str):
+        """
+        Actualiza un alias específico para un cliente.
+
+        Args:
+            alias_id (int): ID del alias a actualizar.
+            new_alias (str): Nuevo valor del alias.
+        """
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            UPDATE aliases
+            SET alias = ?
+            WHERE id = ?
+        ''', (new_alias, alias_id))
+        self.connection.commit()

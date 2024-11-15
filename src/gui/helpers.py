@@ -10,23 +10,6 @@ from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
 
-def check_sharepoint_credentials(username, password):
-    try:
-        # URL base de tu sitio de SharePoint
-        site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
-
-        ctx = ClientContext(site_url).with_credentials(UserCredential(username, password))
-
-        # Intentar obtener información del sitio para validar las credenciales
-        web = ctx.web
-        ctx.load(web)
-        ctx.execute_query()
-
-        # Si la consulta se ejecuta correctamente, las credenciales son válidas
-        return True
-    except Exception as e:
-        logging.error(f"Error de autenticación en SharePoint: {e}")
-        return False
 
 
 def get_resource_path(relative_path):

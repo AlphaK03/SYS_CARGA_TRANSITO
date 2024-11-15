@@ -4,6 +4,8 @@ import sqlite3
 import ttkbootstrap as ttk
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
+from datetime import datetime
+
 
 def on_tab_change(self, event):
     notebook = event.widget
@@ -492,33 +494,53 @@ def delete_client(self):
         messagebox.showwarning("Advertencia", "No se pudo determinar la pestaña activa.")
         return
 
-    selected_item = tree.selection()
-    if not selected_item:
+    selected_items = tree.selection()
+    if not selected_items:
         messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
         return
 
-    item = selected_item[0]
-    client_id = int(tree.item(item, 'values')[0])
-    cliente = tree.item(item, 'values')[1]  # Suponiendo que 'Nombre' está en el índice 1
+    # Confirmación de eliminación
+    if len(selected_items) == 1:
+        cliente_nombre = tree.item(selected_items[0], 'values')[1]
+        mensaje = f"¿Estás seguro de eliminar el cliente '{cliente_nombre}' y todos sus aliases?"
+    else:
+        mensaje = f"¿Estás seguro de eliminar los {len(selected_items)} clientes seleccionados y todos sus aliases?"
 
-    respuesta = messagebox.askyesno("Confirmar",
-                                    f"¿Estás seguro de eliminar el cliente '{cliente}' y todos sus aliases?")
+    respuesta = messagebox.askyesno("Confirmar Eliminación", mensaje)
     if respuesta:
         try:
-            self.db.delete_client(client_id)
+            # Almacenar la información de los clientes eliminados para deshacer
+            deleted_clients = []
+            for item in selected_items:
+                client_id = int(tree.item(item, 'values')[0])
+                client_name = tree.item(item, 'values')[1]
+                client_email = tree.item(item, 'values')[2]
+                aliases = self.db.get_aliases_for_client(client_id)
+                deleted_clients.append({
+                    'id': client_id,
+                    'nombre': client_name,
+                    'correo': client_email,
+                    'aliases': aliases
+                })
+                self.db.delete_client(client_id)
 
-            # Recargar las tablas después de eliminar el cliente
+            # Agregar la acción de deshacer a la pila
+            self.undo_stack.append({
+                'action': 'delete_clients',
+                'data': deleted_clients,
+                'list_id': self.list_ids.get(self.selected_lista.get(), None) if current_tab == "Por Lista" else None
+            })
+
+            # Recargar las tablas después de eliminar los clientes
             if current_tab == "Por Lista":
                 self.load_clients_in_selected_list()
             elif current_tab == "Todos los Clientes":
                 self.load_all_clients()
-
             # Limpiar la lista de aliases
             listbox.delete(0, tk.END)
-
-            # messagebox.showinfo("Éxito", "Cliente eliminado exitosamente.")
+            messagebox.showinfo("Éxito", "Cliente(s) eliminado(s) exitosamente.")
         except Exception as e:
-            messagebox.showerror("Error", f"Ocurrió un error al eliminar el cliente: {str(e)}")
+            messagebox.showerror("Error", f"Ocurrió un error al eliminar el cliente(s): {str(e)}")
 
 
 def add_alias(self):
@@ -798,7 +820,6 @@ def add_client_to_selected_list(self):
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error al agregar los clientes a la lista: {str(e)}")
 
-
 def remove_client_from_selected_list(self):
     selected_list_name = self.selected_lista.get()
     if not selected_list_name:
@@ -823,7 +844,6 @@ def remove_client_from_selected_list(self):
             messagebox.showinfo("Éxito", "Clientes eliminados de la lista exitosamente.")
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error al eliminar los clientes de la lista: {str(e)}")
-
 
 def export_clients(self):
     """
@@ -888,7 +908,6 @@ def export_clients(self):
         messagebox.showinfo("Exportación completa", f"Los datos se han exportado a {file_path}")
     except Exception as e:
         messagebox.showerror("Error de exportación", f"No se pudo exportar: {e}")
-
 
 def import_clients(self):
     # Abrir el diálogo de selección de archivo
@@ -956,7 +975,7 @@ def open_client_manager(self):
     screen_width = self.winfo_screenwidth()
     screen_height = self.winfo_screenheight()
     self.scaling_factor = min(screen_width / 1920, screen_height / 1080)  # Basado en 1920x1080
-    window_width = min(int(screen_width * 1), 900)
+    window_width = min(int(screen_width * 1), 1200)
     window_height = min(int(screen_height * 0.8), 1400)  # Ajustado para evitar ventanas demasiado altas
 
     # Calcular la posición x e y para centrar la ventana
@@ -1045,8 +1064,10 @@ def open_client_manager(self):
     # Crear el menú contextual para los Treeview
     self.context_menu = tk.Menu(self.client_manager, tearoff=0)
     self.context_menu.add_command(label="Agregar a Lista...", command=self.context_menu_add_to_list)
-    self.context_menu.add_command(label="Agregar a Nueva Lista...",
-                                  command=self.context_menu_add_to_new_list)  # Nueva opción
+    self.context_menu.add_command(label="Agregar a Nueva Lista...", command=self.context_menu_add_to_new_list)
+    self.context_menu.add_separator()  # Agregar una línea separadora para mejor organización
+    self.context_menu.add_command(label="Eliminar Cliente(s)", command=self.delete_client_from_context_menu)
+
 
     # Frame para la tabla de clientes por lista
     frame_clientes = ttk.Frame(tab_por_lista, padding=int(10 * self.scaling_factor))
@@ -1076,6 +1097,7 @@ def open_client_manager(self):
     # Vincular evento para la selección de cliente en "Por Lista"
     self.tree_clients_por_lista.bind('<<TreeviewSelect>>', self.on_client_select)
 
+
     # Vincular evento para el clic derecho en "Por Lista"
     self.tree_clients_por_lista.bind("<Button-3>", self.show_context_menu)
 
@@ -1100,11 +1122,10 @@ def open_client_manager(self):
     frame_botones_clientes = ttk.Frame(frame_clientes, padding=int(10 * self.scaling_factor))
     frame_botones_clientes.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                                 pady=int(5 * self.scaling_factor), sticky='ew')
-    frame_botones_clientes.columnconfigure(0, weight=1)
-    frame_botones_clientes.columnconfigure(1, weight=1)
-    frame_botones_clientes.columnconfigure(2, weight=1)
-    frame_botones_clientes.columnconfigure(3, weight=1)
-    frame_botones_clientes.columnconfigure(4, weight=1)
+    frame_botones_clientes.columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+    # Vincular Ctrl + Z a la acción de deshacer
+    self.client_manager.bind_all('<Control-z>', self.undo_action)
 
     boton_anadir_cliente = ttk.Button(
         frame_botones_clientes,
@@ -1176,9 +1197,10 @@ def open_client_manager(self):
     # Lista para mostrar los aliases del cliente seleccionado en "Por Lista"
     self.listbox_aliases_por_lista = tk.Listbox(
         frame_aliases_content,
-        height=12  # Establecer la altura en 5 filas visibles
+        height=12  # Establecer la altura en 12 filas visibles
     )
     self.listbox_aliases_por_lista.grid(row=0, column=0, sticky='nsew')
+    self.listbox_aliases_por_lista.bind("<Double-1>", self.edit_alias_inline)
 
     # Scrollbar para la lista de aliases por lista
     scrollbar_aliases = ttk.Scrollbar(
@@ -1267,10 +1289,7 @@ def open_client_manager(self):
     frame_botones_all_clients = ttk.Frame(frame_all_clients, padding=int(10 * self.scaling_factor))
     frame_botones_all_clients.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                                    pady=int(5 * self.scaling_factor), sticky='ew')
-    frame_botones_all_clients.columnconfigure(0, weight=1)
-    frame_botones_all_clients.columnconfigure(1, weight=1)
-    frame_botones_all_clients.columnconfigure(2, weight=1)
-    frame_botones_all_clients.columnconfigure(3, weight=1)
+    frame_botones_all_clients.columnconfigure((0, 1, 2, 3), weight=1)
 
     boton_anadir_cliente_all = ttk.Button(
         frame_botones_all_clients,
@@ -1335,6 +1354,7 @@ def open_client_manager(self):
         height=15  # Establecer la altura en 15 filas visibles
     )
     self.listbox_aliases_all_clients.grid(row=0, column=0, sticky='nsew')
+    self.listbox_aliases_all_clients.bind("<Double-1>", self.edit_alias_inline)
 
     # Scrollbar para la lista de aliases de todos los clientes
     scrollbar_aliases_all_clients = ttk.Scrollbar(
@@ -1430,6 +1450,7 @@ def context_menu_add_to_list(self):
     # Mostrar la ventana para seleccionar la lista
     self.show_add_to_list_dialog(tree, selected_items, available_lists)
 
+
 def show_context_menu(self, event):
     """
     Muestra el menú contextual al hacer clic derecho en un Treeview.
@@ -1450,5 +1471,272 @@ def show_context_menu(self, event):
         else:
             # Si se hace clic fuera de cualquier ítem, limpiar la selección
             widget.selection_clear()
-        # Mostrar el menú contextual
-        self.context_menu.tk_popup(event.x_root, event.y_root)
+        # Crear el menú contextual
+        context_menu = tk.Menu(self.client_manager, tearoff=0)
+        context_menu.add_command(label="Enviar Reporte(s)", command=self.send_reports_to_selected_clients)
+        context_menu.add_separator()  # Agregar una línea separadora para mejor organización
+        context_menu.add_command(label="Agregar a Lista...", command=self.context_menu_add_to_list)
+        context_menu.add_command(label="Agregar a Nueva Lista...", command=self.context_menu_add_to_new_list)
+        context_menu.add_separator()  # Agregar una línea separadora para mejor organización
+        context_menu.add_command(label="Eliminar Cliente(s)", command=self.delete_client_from_context_menu)
+
+        # Mostrar el menú
+        context_menu.tk_popup(event.x_root, event.y_root)
+    # Evitar que el menú contextual permanezca en la pantalla
+    context_menu.grab_release()
+
+
+def delete_client_from_context_menu(self):
+    """
+    Elimina los clientes seleccionados desde el menú contextual.
+    """
+    # Determinar la pestaña activa
+    notebook = self.client_manager.nametowidget("!notebook")
+    current_tab = notebook.tab(notebook.select(), "text")
+
+    if current_tab == "Por Lista":
+        tree = self.tree_clients_por_lista
+        listbox = self.listbox_aliases_por_lista
+    elif current_tab == "Todos los Clientes":
+        tree = self.tree_all_clients
+        listbox = self.listbox_aliases_all_clients
+    else:
+        messagebox.showwarning("Advertencia", "No se pudo determinar la pestaña activa.")
+        return
+
+    selected_items = tree.selection()
+    if not selected_items:
+        messagebox.showwarning("Advertencia", "Por favor, selecciona al menos un cliente de la lista.")
+        return
+
+    # Confirmación de eliminación
+    if len(selected_items) == 1:
+        cliente_nombre = tree.item(selected_items[0], 'values')[1]
+        mensaje = f"¿Estás seguro de eliminar el cliente '{cliente_nombre}' y todos sus aliases?"
+    else:
+        mensaje = f"¿Estás seguro de eliminar los {len(selected_items)} clientes seleccionados y todos sus aliases?"
+
+    respuesta = messagebox.askyesno("Confirmar Eliminación", mensaje)
+    if respuesta:
+        try:
+            # Almacenar la información de los clientes eliminados para deshacer
+            deleted_clients = []
+            for item in selected_items:
+                client_id = int(tree.item(item, 'values')[0])
+                client_name = tree.item(item, 'values')[1]
+                client_email = tree.item(item, 'values')[2]
+                aliases = self.db.get_aliases_for_client(client_id)
+                deleted_clients.append({
+                    'id': client_id,
+                    'nombre': client_name,
+                    'correo': client_email,
+                    'aliases': aliases
+                })
+                self.db.delete_client(client_id)
+
+            # Agregar la acción de deshacer a la pila
+            self.undo_stack.append({
+                'action': 'delete_clients',
+                'data': deleted_clients,
+                'list_id': self.list_ids.get(self.selected_lista.get(), None) if current_tab == "Por Lista" else None
+            })
+
+            # Recargar las tablas después de eliminar los clientes
+            if current_tab == "Por Lista":
+                self.load_clients_in_selected_list()
+            elif current_tab == "Todos los Clientes":
+                self.load_all_clients()
+            # Limpiar la lista de aliases
+            listbox.delete(0, tk.END)
+            messagebox.showinfo("Éxito", "Cliente(s) eliminado(s) exitosamente.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Ocurrió un error al eliminar el cliente(s): {str(e)}")
+
+def edit_alias_inline(self, event):
+    """
+    Permite editar un alias directamente en el Listbox haciendo doble clic.
+    """
+    # Obtener el widget Listbox que disparó el evento
+    widget = event.widget
+    # Obtener la posición del clic
+    x, y = event.x, event.y
+    # Obtener el índice del alias bajo el cursor
+    index = widget.nearest(y)
+    if index >= 0:
+        # Obtener el alias seleccionado
+        alias_item = widget.get(index)
+        try:
+            alias_id, alias = alias_item.split(':', 1)
+        except ValueError:
+            messagebox.showerror("Error", "Formato de alias inválido.")
+            return
+
+        # Obtener la posición del alias en el Listbox
+        bbox = widget.bbox(index)
+        if not bbox:
+            return
+        entry_x, entry_y, entry_width, entry_height = bbox
+        # Crear un Entry widget sobre el alias para editar
+        self.entry_alias = ttk.Entry(widget, width=30)
+        self.entry_alias.insert(0, alias)
+        self.entry_alias.select_range(0, tk.END)
+        self.entry_alias.focus_set()
+        # Posicionar el Entry sobre el alias
+        self.entry_alias.place(x=entry_x, y=entry_y, width=entry_width, height=entry_height)
+
+        def guardar_alias(event=None):
+            nuevo_alias = self.entry_alias.get().strip()
+            if not nuevo_alias:
+                messagebox.showwarning("Advertencia", "El alias no puede estar vacío.")
+                return
+            try:
+                # Actualizar en la base de datos
+                self.db.update_alias(int(alias_id), nuevo_alias)
+                # Actualizar en el Listbox
+                widget.delete(index)
+                widget.insert(index, f"{alias_id}:{nuevo_alias}")
+                self.entry_alias.destroy()
+                messagebox.showinfo("Éxito", "Alias actualizado exitosamente.")
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Error", f"El alias '{nuevo_alias}' ya existe para este cliente.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al actualizar el alias: {str(e)}")
+
+        def cancelar_edicion(event=None):
+            self.entry_alias.destroy()
+
+        # Bindings para guardar o cancelar la edición
+        self.entry_alias.bind("<Return>", guardar_alias)
+        self.entry_alias.bind("<FocusOut>", guardar_alias)
+        self.entry_alias.bind("<Escape>", cancelar_edicion)
+
+def undo_action(self, event=None):
+    """
+    Deshace la última acción realizada.
+    """
+    if not self.undo_stack:
+        messagebox.showinfo("Deshacer", "No hay acciones para deshacer.")
+        return
+
+    last_action = self.undo_stack.pop()
+    action_type = last_action.get('action')
+
+    if action_type == 'delete_clients':
+        deleted_clients = last_action.get('data', [])
+        list_id = last_action.get('list_id', None)
+
+        try:
+            self.db.connection.execute('BEGIN')  # Iniciar transacción
+
+            for client in deleted_clients:
+                # Asegurarse de que 'correo' es una cadena de texto
+                correo = client['correo']
+                if isinstance(correo, tuple):
+                    correo = correo[0]  # Ajusta el índice según la estructura del tuple
+
+                # Reinsertar el cliente con su ID original
+                self.db.add_client(
+                    nombre=client['nombre'],
+                    correo=correo,
+                    client_id=client['id']
+                )
+
+                for alias in client['aliases']:
+                    alias_str = alias[1]
+                    if isinstance(alias_str, tuple):
+                        alias_str = alias_str[0]  # Ajusta el índice según la estructura del tuple
+                    self.db.add_alias(client_id=client['id'], alias=alias_str)
+
+                if list_id:
+                    self.db.add_client_to_list(client_id=client['id'], list_id=list_id)
+
+            self.db.connection.commit()  # Confirmar transacción
+
+            # Recargar las tablas para reflejar los cambios
+            self.load_all_clients()
+            if self.selected_lista.get():
+                self.load_clients_in_selected_list()
+
+            messagebox.showinfo("Deshacer", "La eliminación de cliente(s) ha sido deshecha exitosamente.")
+        except Exception as e:
+            self.db.connection.rollback()  # Revertir transacción
+            messagebox.showerror("Error", f"Ocurrió un error al deshacer la eliminación: {str(e)}")
+    else:
+        messagebox.showwarning("Deshacer", "La acción no se puede deshacer.")
+
+
+import threading  # Asegúrate de tener importado threading al inicio del archivo
+
+
+def send_reports_to_selected_clients(self):
+    """
+    Envía reportes por correo electrónico a los clientes seleccionados.
+    """
+    # Determinar la pestaña activa
+    notebook = self.client_manager.nametowidget("!notebook")
+    current_tab = notebook.tab(notebook.select(), "text")
+
+    if current_tab == "Por Lista":
+        tree = self.tree_clients_por_lista
+    elif current_tab == "Todos los Clientes":
+        tree = self.tree_all_clients
+    else:
+        messagebox.showwarning("Advertencia", "No se pudo determinar la pestaña activa.")
+        return
+
+    # Obtener los ítems seleccionados
+    selected_items = tree.selection()
+    if not selected_items:
+        messagebox.showwarning("Advertencia", "Por favor, selecciona al menos un cliente.")
+        return
+
+    try:
+        # Intentar obtener la fecha de última actualización
+        last_update_date = self.processor.get_last_update_date()
+    except Exception as e:
+        # Si hay una excepción (archivo no descargado), mostrar mensaje y preguntar al usuario si desea generar reportes
+        respuesta_generar = messagebox.askyesno("Archivo no disponible",
+                                                "El archivo de actualización no ha sido descargado.\n"
+                                                "¿Desea generar los reportes antes de continuar?")
+        if respuesta_generar:
+            self.processor.run_macro()
+            self.processor.process_file()
+
+            try:
+                last_update_date = self.processor.get_last_update_date()  # Intenta obtener la fecha de nuevo
+            except Exception:
+                messagebox.showerror("Error", "No se pudo generar una fecha de actualización. Inténtalo de nuevo.")
+                return
+        else:
+            return  # El usuario eligió no continuar sin la fecha de actualización
+
+    # Confirmar acción con el usuario según la disponibilidad de la fecha de actualización
+    if last_update_date:
+        try:
+            # Intentar convertir last_update_date a un objeto datetime
+            last_update_date_obj = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S")
+            # Formatear la fecha sin segundos
+            formatted_update_date = last_update_date_obj.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            # Si last_update_date no tiene el formato esperado, dejarlo como está
+            formatted_update_date = last_update_date
+
+        # Generar el mensaje de confirmación con la fecha
+        if len(selected_items) == 1:
+            cliente_nombre = tree.item(selected_items[0], 'values')[1]
+            mensaje = (f"¿Estás seguro de enviar el reporte al cliente '{cliente_nombre}'?\n"
+                       f"Última actualización del reporte: {formatted_update_date}")
+        else:
+            mensaje = (f"¿Estás seguro de enviar reportes a los {len(selected_items)} clientes seleccionados?\n"
+                       f"Última actualización de reportes: {formatted_update_date}")
+    else:
+        # Si no hay fecha de última actualización
+        mensaje = "No se encontró una fecha de última actualización. ¿Deseas generar los reportes?"
+
+    # Mostrar mensaje de confirmación final de envío
+    respuesta_envio = messagebox.askyesno("Confirmar Envío", mensaje)
+    if not respuesta_envio:
+        return
+
+    # Iniciar el proceso de envío en un hilo separado
+    threading.Thread(target=self.process_sending_reports, args=(selected_items, tree), daemon=True).start()

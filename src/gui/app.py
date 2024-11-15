@@ -5,6 +5,7 @@ import os
 import socketserver
 import sqlite3
 import sys
+from datetime import datetime
 from urllib.parse import quote
 import threading
 from urllib.parse import urlparse, parse_qs
@@ -35,7 +36,10 @@ from manager.client_manager import open_client_manager, on_tab_change, on_list_s
     update_list_combobox_ui, add_client_to_selected_list, remove_client_from_selected_list, export_clients, \
     import_clients
 
-from src.manager.client_manager import context_menu_add_to_list, show_context_menu
+from manager.client_manager import context_menu_add_to_list, show_context_menu
+
+from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
+    send_reports_to_selected_clients
 
 # Credenciales de Microsoft OAuth2
 MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
@@ -46,7 +50,6 @@ REDIRECT_URI = "http://localhost:62190/"
 from gui.styles import init_styles
 # Importar funciones y clases desde los módulos que creamos
 from gui.helpers import (
-    check_sharepoint_credentials,
     get_resource_path,
     get_email_google,
     get_microsoft_user_info,
@@ -63,6 +66,24 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def check_sharepoint_credentials(username, password):
+    try:
+        # URL base de tu sitio de SharePoint
+        site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
+
+        ctx = ClientContext(site_url).with_credentials(UserCredential(username, password))
+
+        # Intentar obtener información del sitio para validar las credenciales
+        web = ctx.web
+        ctx.load(web)
+        ctx.execute_query()
+
+        # Si la consulta se ejecuta correctamente, las credenciales son válidas
+        return True
+    except Exception as e:
+        logging.error(f"Error de autenticación en SharePoint: {e}")
+        return False
 
 class AuthHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, auth_code_container, **kwargs):
@@ -144,6 +165,24 @@ class Application(ttk.Window):
             token_cache=self.sharepoint_token_cache.cache  # Usar el caché específico para SharePoint
         )
 
+        # Bindings globales para atajos de teclado
+        self.bind_all("<Control-a>", lambda event: self.add_client())
+        self.bind_all("<Control-A>", lambda event: self.add_client())
+        self.bind_all("<Control-e>", lambda event: self.edit_client())
+        self.bind_all("<Control-E>", lambda event: self.edit_client())
+        self.bind_all("<Control-d>", lambda event: self.delete_client())
+        self.bind_all("<Control-D>", lambda event: self.delete_client())
+        self.bind_all("<Control-Shift-l>", lambda event: self.add_client_to_existing_list())
+        self.bind_all("<Control-Shift-L>", lambda event: self.add_client_to_existing_list())
+
+        self.undo_stack = []
+
+        # Configuración para FileProcessor (Reemplaza con tus URLs reales)
+        self.processor = FileProcessor(
+            site_url='https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS',
+            sharepoint_file_url='/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas Power BI.xlsm'
+        )
+
         # Inicializar EmailSender pasando la instancia de msal_app
         self.email_sender = EmailSender(self.email_msal_app)
 
@@ -216,7 +255,7 @@ class Application(ttk.Window):
         # Menú "Configuración"
         config_menu = tk.Menu(menu_bar, tearoff=0)
         config_menu.add_command(label="Configurar Cuenta", command=self.open_config_window)
-        #config_menu.add_command(label="Cambiar correo de SharePoint", command=self.open_sharepoint_credentials_window)
+        config_menu.add_command(label="Cambiar correo de SharePoint", command=self.open_sharepoint_credentials_window)
         config_menu.add_command(label="Salir", command=self.on_closing)
         menu_bar.add_cascade(label="Configuración", menu=config_menu)
 
@@ -310,27 +349,28 @@ class Application(ttk.Window):
         frame_botones = tk.Frame(self, bg='white')
         frame_botones.grid(row=3, column=0, padx=10, pady=10, sticky='ew')
 
-        # Configuración de columnas en el frame de botones
-        frame_botones.columnconfigure(0, weight=1)
-        frame_botones.columnconfigure(1, weight=1)
+        frame_botones.columnconfigure(0, weight=1)  # Espacio en la izquierda del botón
+        frame_botones.columnconfigure(1, weight=2)  # Espacio donde se coloca el botón
+        frame_botones.columnconfigure(2, weight=1)  # Espacio en la derecha del botón
 
-        # Botón para generar reportes
+        # Botón para generar reportes (centrado)
         boton_generar = ttk.Button(
             frame_botones,
             text="Generar Reportes",
             command=self.filter_and_generate,
             style='BlueZodiac.TButton'
         )
-        boton_generar.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        # Ubicar el botón en la segunda columna, centrado en el frame
+        boton_generar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
-        # Botón para enviar correos
-        boton_enviar = ttk.Button(
-            frame_botones,
-            text="Enviar Correos",
-            command=self.send_mails,
-            style='YellowSea.TButton'
-        )
-        boton_enviar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        # # Botón para enviar correos (Eliminado)
+        # boton_enviar = ttk.Button(
+        #     frame_botones,
+        #     text="Enviar Correos",
+        #     command=self.send_mails,
+        #     style='YellowSea.TButton'
+        # )
+        # boton_enviar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
         # Label para mostrar mensajes de progreso
         self.progress_label = ttk.Label(
@@ -372,8 +412,6 @@ class Application(ttk.Window):
             self.loading_index = 0
             self.animate_loading()
 
-    import logging
-    import requests
 
     def get_current_authenticated_user(self):
         """
@@ -450,7 +488,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.1.8"
+        version = "Versión 2.2.5"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -896,45 +934,57 @@ class Application(ttk.Window):
             messagebox.showerror("Error", f"No se pudo abrir la ventana de configuración: {str(e)}")
 
     def filter_and_generate(self):
+        # URLs fijas dentro del código
         site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
-        sharepoint_file_url = '/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas Power BI.xlsm'
+        file_url = '/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas Power BI.xlsm'
+        username = self.config_manager.get_sharepoint_username()
+        password = self.config_manager.get_sharepoint_password()
 
-        # Obtener el token de acceso para SharePoint
-        access_token = self.get_sharepoint_access_token()
-        if not access_token:
-            self.update_progress("No se pudo obtener un token de acceso para SharePoint.", style='Error.TLabel')
+        if not username or not password:
+            self.update_progress("Por favor, configura tu usuario y contraseña de SharePoint.", style='Warning.TLabel')
+            self.stop_loading_animation()
+            self.open_sharepoint_credentials_window()
             return
 
         try:
-            # Crear la instancia de FileProcessor pasando el token de acceso
-            self.processor = FileProcessor(site_url, sharepoint_file_url, access_token)
+            # Crear la instancia de FileProcessor
+            self.processor = FileProcessor(site_url, file_url)
             self.update_progress("", style='Info.TLabel')
             self.update_progress("********************************************************", style='Delete.TLabel')
-
-            # Descargar el archivo
+            # Descargando el archivo
             self.update_progress("Descargando el informe...", style='Info.TLabel')
             self.update_idletasks()
-            self.processor.download_file()
-
+            self.processor.download_file(username, password)
             self.update_progress("********************************************************", style='Delete.TLabel')
-
             # Ejecutar la macro
             self.update_progress("Actualizando el informe...", style='Info.TLabel')
             self.update_idletasks()
             self.processor.run_macro()
-
             self.update_progress("********************************************************", style='Delete.TLabel')
-
             # Generar reportes
             self.update_progress("Generando reportes...", style='Info.TLabel')
             self.update_idletasks()
             self.processor.process_file()
-
             self.update_progress("********************************************************", style='Delete.TLabel')
 
-            # Mensaje de éxito
-            self.update_progress("Reportes generados!!", style='Success.TLabel')
-            self.stop_loading_animation()
+            # Obtener la fecha de la última actualización
+            last_update_date = self.processor.get_last_update_date()
+            if last_update_date:
+                # Formatear la fecha para eliminar los segundos
+                last_update_date = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S.%f").strftime(
+                    "%Y-%m-%d %H:%M")
+
+                # Actualizar el mensaje de progreso con el texto centrado y la fecha formateada
+                self.progress_label.config(anchor='center')  # Asegura que el texto esté centrado
+                self.update_progress(f"Listo. Última actualización: {last_update_date}",
+                                     style='Success.TLabel')
+            else:
+                # Si no se pudo obtener la fecha, mostrar el mensaje sin la fecha
+                self.update_progress("Reportes generados!!", style='Success.TLabel')
+
+
+            # Mostrar opciones de envío debajo del mensaje de éxito
+            self.show_send_options()
 
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
@@ -942,6 +992,119 @@ class Application(ttk.Window):
             # Asegurarse de cerrar el archivo si la instancia de processor existe
             if self.processor and hasattr(self.processor, 'close') and callable(self.processor.close):
                 self.processor.close()
+            self.stop_loading_animation()
+
+    def show_send_options(self):
+        # Crear un frame para las opciones de envío
+        self.frame_opciones = ttk.Frame(self)
+        self.frame_opciones.grid(row=5, column=0, pady=(10, 0), sticky='n')
+
+        # Etiqueta de la pregunta
+        pregunta_label = ttk.Label(self.frame_opciones, text="¿Desea enviar los reportes?", style='Info.TLabel')
+        pregunta_label.grid(row=0, column=0, columnspan=2, pady=(0, 5))
+
+        # Botones Sí y No alineados juntos
+        self.send_yes_button = ttk.Button(self.frame_opciones, text="Sí", command=self.send_mails,
+                                          style='BlueZodiac.TButton')
+        self.send_yes_button.grid(row=1, column=0, padx=5, sticky='e')
+
+        self.send_no_button = ttk.Button(self.frame_opciones, text="No", command=self.hide_send_options,
+                                         style='RedColor.TButton')
+        self.send_no_button.grid(row=1, column=1, padx=5, sticky='w')
+
+    def hide_send_options(self):
+        # Ocultar el frame de opciones después de seleccionar No
+        self.frame_opciones.grid_remove()
+        self.update_progress("********************************************************", style='Delete.TLabel')
+
+    def send_reports(self):
+        """
+        Inicia el proceso de envío de reportes por correo electrónico.
+        """
+        # Mostrar el GIF de carga y actualizar el mensaje de progreso
+        self.start_loading_animation()
+        self.update_progress("Verificando autenticación...", style='Info.TLabel')
+
+        # Obtener la información del usuario autenticado
+        user_info = self.get_current_authenticated_user()
+
+        if not user_info:
+            self.update_progress("No estás autenticado. Iniciando sesión...", style='Warning.TLabel')
+            # Abrir la ventana de configuración para iniciar sesión
+            self.open_config_window()
+            # Después de cerrar la ventana de configuración, verificar nuevamente la autenticación
+            user_info = self.get_current_authenticated_user()
+            if not user_info:
+                self.update_progress("Autenticación fallida. No se pueden enviar correos.", style='Error.TLabel')
+                self.stop_loading_animation()
+                return
+            else:
+                self.update_progress("Autenticación exitosa. Preparando para enviar correos...", style='Success.TLabel')
+
+        # Continuar con el envío de correos si está autenticado
+        try:
+            email = user_info['email']
+            if not email:
+                self.update_progress("No se pudo obtener el correo electrónico del usuario.", style='Error.TLabel')
+                self.stop_loading_animation()
+                return
+
+            # Obtener todas las listas disponibles (si aplica)
+            listas = self.db.get_all_lists()
+            if not listas:
+                messagebox.showwarning("Advertencia", "No hay listas disponibles. Por favor, crea una lista primero.")
+                self.update_progress("No hay listas disponibles para enviar correos.", style='Warning.TLabel')
+                self.stop_loading_animation()
+                return
+
+            # Seleccionar la lista para enviar correos
+            lista_nombres = [nombre for (id, nombre) in listas]
+            list_var = tk.StringVar(value=lista_nombres[0] if lista_nombres else '')
+
+            select_list_window = tk.Toplevel(self)
+            select_list_window.title("Seleccionar Lista")
+
+            # Ajustar el tamaño inicial de la ventana según el escalado
+            initial_width = int(300 * self.scaling_factor)
+            initial_height = int(250 * self.scaling_factor)
+
+            self.center_window(select_list_window, initial_width, initial_height)
+
+            etiqueta_lista = ttk.Label(select_list_window, text="Selecciona la lista para enviar correos:",
+                                       style='Custom.TLabel')
+            etiqueta_lista.pack(pady=5)
+
+            list_menu = ttk.OptionMenu(select_list_window, list_var, *lista_nombres)
+            list_menu.pack(pady=5)
+
+            def confirmar_lista():
+                seleccion = list_var.get()
+                list_id = None
+                for id, nombre in listas:
+                    if nombre == seleccion:
+                        list_id = id
+                        break
+                if list_id is not None:
+                    select_list_window.destroy()
+                    self.send_mails_to_list(list_id)
+                else:
+                    messagebox.showerror("Error", "No se pudo obtener la lista seleccionada.")
+
+            boton_confirmar = ttk.Button(
+                select_list_window,
+                text="Confirmar",
+                command=confirmar_lista,
+                style='GreenSuccess.TButton'
+            )
+            boton_confirmar.pack(pady=10)
+
+            select_list_window.transient(self)
+            select_list_window.grab_set()
+            self.wait_window(select_list_window)
+
+        except Exception as e:
+            self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
+        finally:
             self.stop_loading_animation()
 
     def send_mails(self):
@@ -981,6 +1144,11 @@ class Application(ttk.Window):
                 self.stop_loading_animation()
                 return
 
+            last_update_date = self.processor.get_last_update_date()
+            # Formatear la fecha de última actualización para mostrarla en la ventana de selección de lista
+            last_update_date = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S.%f").strftime("%Y-%m-%d %H:%M")
+
+
             lista_nombres = [nombre for (id, nombre) in listas]
             list_var = tk.StringVar(value=lista_nombres[0] if lista_nombres else '')
 
@@ -999,6 +1167,14 @@ class Application(ttk.Window):
 
             list_menu = ttk.OptionMenu(select_list_window, list_var, *lista_nombres)
             list_menu.pack(pady=5)
+
+            # Agregar la etiqueta de última actualización
+            etiqueta_fecha = ttk.Label(
+                select_list_window,
+                text=f"Última actualización: {last_update_date}",
+                style='Info.TLabel'  # Puedes personalizar el estilo si es necesario
+            )
+            etiqueta_fecha.pack(pady=5)
 
             def confirmar_lista():
                 seleccion = list_var.get()
@@ -1384,3 +1560,193 @@ class Application(ttk.Window):
         ventana_crear_lista.grab_set()
         self.client_manager.wait_window(ventana_crear_lista)
 
+    def delete_client_from_context_menu(self):
+        delete_client_from_context_menu(self)
+
+    def edit_alias_inline(self, event):
+        edit_alias_inline(self, event)
+
+    def open_sharepoint_credentials_window(self):
+        # Obtener la resolución de pantalla y calcular el factor de escala
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        scaling_factor = min(screen_width / 1920, screen_height / 1080)  # Basado en 1920x1080
+        window_width = min(int(screen_width * 0.3 * scaling_factor), 1200)  # 30% del ancho o máximo 1200 px
+        window_height = min(int(screen_height * 0.4 * scaling_factor), 900)
+
+        # Crear la ventana de configuración de credenciales
+        config_window = ttk.Toplevel(self)
+        config_window.title("Configurar Credenciales de SharePoint")
+
+
+        self.center_window(config_window, window_width, window_height)
+
+        # Configuración del grid
+        config_window.columnconfigure(0, weight=1)
+
+        etiqueta_info = ttk.Label(
+            config_window,
+            text="Ingresa tus credenciales de SharePoint:",
+            style='Custom.TLabel'
+        )
+        etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
+
+        etiqueta_username = ttk.Label(
+            config_window,
+            text="Usuario de SharePoint:",
+            style='Custom.TLabel'
+        )
+        etiqueta_username.grid(row=1, column=0, pady=int(5 * scaling_factor), sticky='w')
+
+        entrada_username = ttk.Entry(config_window)
+        entrada_username.insert(0, self.config_manager.get_sharepoint_username())
+        entrada_username.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor), sticky='ew')
+
+        etiqueta_password = ttk.Label(
+            config_window,
+            text="Contraseña de SharePoint:",
+            style='Custom.TLabel'
+        )
+        etiqueta_password.grid(row=3, column=0, pady=int(5 * scaling_factor), sticky='w')
+
+        # Configuración de la entrada de contraseña con alternancia de visibilidad
+        frame_password = ttk.Frame(config_window)
+        frame_password.grid(row=4, column=0, pady=int(5 * scaling_factor), sticky='ew')
+
+        entrada_password = ttk.Entry(frame_password, show='*')
+        entrada_password.grid(row=0, column=0, sticky='ew', padx=int(5 * scaling_factor), pady=int(5 * scaling_factor))
+
+        # Cargar imágenes de los íconos de ojo usando rutas seguras
+        try:
+            eye_open_path = get_resource_path('resources/eye_open.png')
+            eye_closed_path = get_resource_path('resources/eye_closed.png')
+
+            # Redimensionar los iconos de acuerdo al factor de escala
+            icon_size = int(20 * scaling_factor)
+            eye_open_img = Image.open(eye_open_path)
+            eye_closed_img = Image.open(eye_closed_path)
+            eye_open_photo = ImageTk.PhotoImage(eye_open_img.resize((icon_size, icon_size)))
+            eye_closed_photo = ImageTk.PhotoImage(eye_closed_img.resize((icon_size, icon_size)))
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al cargar iconos de visibilidad de contraseña: {e}")
+            eye_open_photo = eye_closed_photo = None
+
+        password_visible = False
+
+        def toggle_password_visibility():
+            nonlocal password_visible
+            if password_visible:
+                entrada_password.config(show='*')
+                boton_toggle.config(image=eye_closed_photo)
+                password_visible = False
+            else:
+                entrada_password.config(show='')
+                boton_toggle.config(image=eye_open_photo)
+                password_visible = True
+
+        boton_toggle = ttk.Button(
+            frame_password,
+            image=eye_closed_photo,
+            command=toggle_password_visibility,
+            style='TButton'
+        )
+        boton_toggle.grid(row=0, column=1, padx=int(5 * scaling_factor), sticky='e')
+        frame_password.columnconfigure(0, weight=1)
+
+        # Función para guardar las credenciales
+        def guardar_sharepoint_credentials():
+            username = entrada_username.get().strip()
+            password = entrada_password.get().strip()
+
+            if not username or not password:
+                messagebox.showwarning("Advertencia", "Por favor, completa todos los campos.")
+                return
+
+            try:
+                if check_sharepoint_credentials(username, password):
+                    self.config_manager.set_sharepoint_username(username)
+                    self.config_manager.set_sharepoint_password(password)
+                    config_window.destroy()
+                    messagebox.showinfo("Éxito", "Credenciales de SharePoint guardadas exitosamente.")
+                else:
+                    messagebox.showerror("Error",
+                                         "Las credenciales de SharePoint son incorrectas. Por favor, intenta nuevamente.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Ocurrió un error al verificar las credenciales: {e}")
+
+        save_button = ttk.Button(
+            config_window,
+            text="Guardar",
+            command=guardar_sharepoint_credentials,
+            style='GreenSuccess.TButton'
+        )
+        save_button.grid(row=5, column=0, padx=int(5 * scaling_factor), pady=int(15 * scaling_factor), sticky='ew')
+
+        # Configurar la ventana como modal
+        config_window.columnconfigure(0, weight=1)
+        config_window.transient(self)
+        config_window.grab_set()
+        self.wait_window(config_window)
+
+    def undo_action(self, event=None):
+        undo_action(self, event)
+
+    def send_reports_to_selected_clients(self):
+        send_reports_to_selected_clients(self)
+
+    def process_sending_reports(self, selected_items, tree):
+        """
+        Procesa el envío de reportes en un hilo separado.
+        """
+        self.after(0, lambda: self.start_loading_animation())
+        self.after(0, lambda: self.update_progress("Enviando reportes...", style='Info.TLabel'))
+
+        errores_envio = []
+        enviados_exitosamente = []
+
+        for item in selected_items:
+            client_id = int(tree.item(item, 'values')[0])
+            cliente_nombre = tree.item(item, 'values')[1]
+            cliente_correo = tree.item(item, 'values')[2]
+
+            # Verificar que el correo es válido
+            if not cliente_correo or cliente_correo.lower().strip() == '(correo sin definir)':
+                errores_envio.append(f"El cliente '{cliente_nombre}' no tiene un correo válido.")
+                continue
+
+            # Obtener la ruta del reporte generado
+            reporte_path = self.processor.get_client_file(cliente_nombre)  # Método existente en FileProcessor
+            if not reporte_path or not os.path.exists(reporte_path):
+                errores_envio.append(f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes")
+                continue
+
+            # Preparar el correo
+            asunto = f"Reporte para {cliente_nombre}"
+            cuerpo_html = f"""
+            <h1>Estimado {cliente_nombre},</h1>
+            <p>Adjunto encontrarás tu reporte.</p>
+            <p>Saludos cordiales,<br/>Tu Empresa</p>
+            """
+
+            # Enviar el correo utilizando EmailSender
+            success, msg = self.email_sender.send_email(cliente_correo, asunto, cuerpo_html, reporte_path)
+            if success:
+                enviados_exitosamente.append(cliente_nombre)
+            else:
+                errores_envio.append(f"Error al enviar a '{cliente_nombre}': {msg}")
+
+        # Actualizar la interfaz con los resultados
+        if enviados_exitosamente:
+            self.after(0, lambda: self.update_progress(
+                f"Reportes enviados a: {', '.join(enviados_exitosamente)}", style='Success.TLabel'))
+
+        if errores_envio:
+            self.after(0, lambda: self.update_progress(
+                "Errores durante el envío de reportes.", style='Error.TLabel'))
+            errores_detallados = "\n".join(errores_envio)
+            self.after(0, lambda: messagebox.showerror("Errores de Envío", errores_detallados))
+        else:
+            self.after(0, lambda: messagebox.showinfo("Éxito", "Todos los reportes fueron enviados exitosamente."))
+
+        self.after(0, lambda: self.stop_loading_animation())

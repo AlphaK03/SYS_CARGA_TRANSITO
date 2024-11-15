@@ -2,56 +2,28 @@
 
 import os
 import sys
-import time
-import logging
-from typing import List, Optional
-
-import requests
 import win32com.client
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.styles import Font, PatternFill
-from urllib.parse import quote, unquote
-
 from office365.runtime.auth.authentication_context import AuthenticationContext
 from office365.sharepoint.client_context import ClientContext
+from openpyxl.styles import Font, PatternFill
+from typing import List, Optional
+from openpyxl import load_workbook
+import win32com.client  # Importar para interactuar con Excel
+import time
 
 from database.client_database import ClientDatabase
 from utils.config_manager import ConfigManager
 
-from src.processing.custom_auth_provider import TokenAuthenticationContext
-
-# Configuración del logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Ajusta el nivel según tus necesidades
-handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
-
-def get_resource_path(relative_path: str) -> str:
+def get_resource_path(relative_path):
     """
     Obtiene la ruta del recurso empaquetado o del entorno de desarrollo.
-
-    Args:
-        relative_path (str): Ruta relativa al recurso.
-
-    Returns:
-        str: Ruta absoluta al recurso.
     """
-    try:
-        # Si está empaquetado, sys._MEIPASS estará disponible
-        base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
-        resource_path = os.path.join(base_path, relative_path)
-        logger.debug(f"Ruta de recurso obtenida: {resource_path}")
-        return resource_path
-    except Exception as e:
-        logger.exception(f"Error al obtener la ruta del recurso: {e}")
-        raise
+    # Si está empaquetado, sys._MEIPASS estará disponible
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
-
-def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output_file: str) -> None:
+def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output_file: str):
     """
     Guarda el DataFrame en una copia de la plantilla de Excel,
     agregando los datos a partir de la fila 5.
@@ -61,96 +33,50 @@ def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output
         template_path (str): Ruta de la plantilla de Excel.
         output_file (str): Ruta del archivo Excel a generar.
     """
-    try:
-        if not os.path.exists(template_path):
-            logger.error(f"La plantilla de Excel no existe en la ruta: {template_path}")
-            raise FileNotFoundError(f"La plantilla de Excel no existe en la ruta: {template_path}")
+    # Cargar la plantilla
+    workbook = load_workbook(template_path)
+    worksheet = workbook.active  # Suponiendo que la plantilla tiene una sola hoja
 
-        # Cargar la plantilla
-        workbook = load_workbook(template_path)
-        worksheet = workbook.active  # Suponiendo que la plantilla tiene una sola hoja
-        logger.debug(f"Plantilla de Excel cargada desde: {template_path}")
+    # Escribir los nombres de las columnas en la fila 4 (encabezado)
+    for col_idx, column_name in enumerate(df_cliente.columns, start=1):
+        cell = worksheet.cell(row=4, column=col_idx)
+        cell.value = column_name
+        # Aplicar formato al encabezado si es necesario
+        cell.fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
+        cell.font = Font(bold=True, color='FFFFFF')
 
-        # Escribir los nombres de las columnas en la fila 4 (encabezado)
-        for col_idx, column_name in enumerate(df_cliente.columns, start=1):
-            cell = worksheet.cell(row=4, column=col_idx)
-            cell.value = column_name
-            # Aplicar formato al encabezado si es necesario
-            cell.fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
-            cell.font = Font(bold=True, color='FFFFFF')
-            logger.debug(f"Columna '{column_name}' añadida y formateada en la celda ({4}, {col_idx}).")
+    # Escribir los datos a partir de la fila 5
+    for row_idx, row in enumerate(df_cliente.values, start=5):
+        for col_idx, value in enumerate(row, start=1):
+            worksheet.cell(row=row_idx, column=col_idx, value=value)
 
-        # Escribir los datos a partir de la fila 5
-        for row_idx, row in enumerate(df_cliente.itertuples(index=False), start=5):
-            for col_idx, value in enumerate(row, start=1):
-                worksheet.cell(row=row_idx, column=col_idx, value=value)
-            logger.debug(f"Fila {row_idx} añadida al archivo Excel.")
-
-        # Guardar el nuevo archivo Excel
-        workbook.save(output_file)
-        logger.info(f"Archivo Excel guardado exitosamente en: {output_file}")
-
-    except Exception as e:
-        logger.exception(f"Error al guardar el archivo Excel con formato: {e}")
-        raise
-
-
+    # Guardar el nuevo archivo Excel
+    workbook.save(output_file)
 
 class FileProcessor:
-    def __init__(self, site_url: str, sharepoint_file_url: str, access_token: str):
+    """
+    Clase para procesar archivos Excel y generar reportes por cliente, y manejar la base de datos de clientes.
+    """
+
+    def __init__(self, site_url: str, sharepoint_file_url: str):
         """
-        Initializes the FileProcessor with the necessary configuration.
+        Inicializa una instancia de FileProcessor.
 
         Args:
-            site_url (str): The SharePoint site URL.
-            sharepoint_file_url (str): The relative URL of the file in SharePoint.
-            access_token (str): Access token for authentication.
+            site_url (str): URL del sitio de SharePoint.
+            sharepoint_file_url (str): Ruta relativa al archivo en SharePoint.
         """
+        self.loading_frames = None  # Asegúrate de que loading_frames esté definido en __init__
+
         self.site_url = site_url
         self.sharepoint_file_url = sharepoint_file_url
-        self.access_token = access_token
-        self.local_file_path = None
-
         self.output_dir = os.path.join('data', 'Clientes_Separados')
         self.db = ClientDatabase()
         self.config_manager = ConfigManager()
+        self.ctx = None  # SharePoint context
+        self.local_file_path = "data/temp/Informe de cargas Power BI.xlsm"  # Ruta al archivo descargado
 
-        # Asegurar que el directorio de salida exista
-        os.makedirs(self.output_dir, exist_ok=True)
-        logger.debug(f"Directorio de salida asegurado en: {self.output_dir}")
-
-    def download_file(self) -> str:
-        """
-        Downloads the file from SharePoint and saves it locally using the ClientContext with the access token.
-
-        Returns:
-            str: The local file path of the downloaded file.
-        """
-        # Create a temporary directory if it doesn't exist
-        os.makedirs('data/temp', exist_ok=True)
-        file_name = os.path.basename(self.sharepoint_file_url)
-        self.local_file_path = os.path.join('data/temp', file_name)
-
-        try:
-            # Set up authentication and ClientContext
-            ctx_auth = TokenAuthenticationContext(self.site_url, self.access_token)
-            ctx = ClientContext(self.site_url, ctx_auth)
-
-            # Retrieve the file from SharePoint
-            file = ctx.web.get_file_by_server_relative_url(self.sharepoint_file_url)
-            with open(self.local_file_path, "wb") as local_file:
-                file.download(local_file)
-                ctx.execute_query()
-
-            logger.info(f"File downloaded successfully to {self.local_file_path}")
-            return self.local_file_path
-        except Exception as e:
-            logger.error(f"Failed to download file from SharePoint: {e}")
-            raise Exception(f"Failed to download file from SharePoint: {e}")
-
-
-
-    def authenticate_sharepoint(self, username: str, password: str) -> None:
+    def authenticate_sharepoint(self, username: str, password: str):
         """
         Autentica en SharePoint y crea el contexto.
 
@@ -159,34 +85,46 @@ class FileProcessor:
             password (str): Contraseña de SharePoint.
         """
         if not username or not password:
-            logger.error("Las credenciales de SharePoint no están configuradas.")
             raise ValueError("Las credenciales de SharePoint no están configuradas.")
 
-        try:
-            ctx_auth = AuthenticationContext(self.site_url)
-            if ctx_auth.acquire_token_for_user(username, password):
-                self.ctx = ClientContext(self.site_url, ctx_auth)
-                logger.info("Autenticación en SharePoint exitosa.")
-            else:
-                logger.error("Error de autenticación en SharePoint. Verifica tus credenciales.")
-                raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
-        except Exception as e:
-            logger.exception(f"Error durante la autenticación en SharePoint: {e}")
-            raise
+        ctx_auth = AuthenticationContext(self.site_url)
+        if ctx_auth.acquire_token_for_user(username, password):
+            self.ctx = ClientContext(self.site_url, ctx_auth)
+        else:
+            raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
 
-    def run_macro(self, macro_name: str = 'ActualizarPBI') -> None:
+    def download_file(self, username: str, password: str) -> str:
         """
-        Ejecuta una macro en el archivo de Excel descargado y maneja la instancia de Excel.
+        Descarga el archivo de SharePoint y lo guarda en una ubicación temporal.
 
         Args:
-            macro_name (str): Nombre de la macro a ejecutar. Por defecto, 'ActualizarPBI'.
+            username (str): Nombre de usuario de SharePoint.
+            password (str): Contraseña de SharePoint.
+
+        Returns:
+            str: Ruta al archivo descargado localmente.
+        """
+        if not self.ctx:
+            self.authenticate_sharepoint(username, password)
+
+        # Crear carpeta temporal si no existe
+        os.makedirs('data/temp', exist_ok=True)
+        file_name = os.path.basename(self.sharepoint_file_url)
+        self.local_file_path = os.path.join('data/temp', file_name)
+
+        with open(self.local_file_path, "wb") as local_file:
+            file = self.ctx.web.get_file_by_server_relative_url(self.sharepoint_file_url)
+            file.download(local_file)
+            self.ctx.execute_query()
+        return self.local_file_path
+
+    def run_macro(self):
+        """
+        Ejecuta la macro 'ActualizarPBI' en una nueva instancia de Excel y la cierra después de un retraso de 2 segundos.
         """
         if not self.local_file_path:
-            logger.error("El archivo no ha sido descargado aún.")
             raise Exception("El archivo no ha sido descargado aún.")
 
-        excel_app = None
-        workbook = None
         try:
             # Crear una nueva instancia de Excel
             excel_app = win32com.client.DispatchEx("Excel.Application")
@@ -194,32 +132,42 @@ class FileProcessor:
             excel_app.DisplayAlerts = False
             excel_app.AskToUpdateLinks = False
             excel_app.EnableEvents = False
-            logger.debug("Instancia de Excel iniciada.")
 
-            # Abrir el archivo de Excel
+            print("Excel iniciado...")
+
+            # Intentar abrir el archivo de Excel
             workbook = excel_app.Workbooks.Open(os.path.abspath(self.local_file_path), ReadOnly=False)
-            logger.info(f"Archivo de Excel abierto: {self.local_file_path}")
+            print("Archivo de Excel abierto...")
 
-            # Ejecutar la macro
-            logger.debug(f"Ejecutando macro '{macro_name}'...")
-            excel_app.Run(f"'{workbook.Name}'!{macro_name}")
-            logger.info(f"Macro '{macro_name}' ejecutada exitosamente.")
+            # Añadir un tiempo de espera antes de ejecutar la macro
+            time.sleep(1)
 
-            # Opcional: Guardar cambios si la macro los realiza
-            workbook.Save()
-            logger.debug("Cambios en el archivo de Excel guardados.")
+            macro_name = 'ActualizarPBI'
+
+            # Reintentar la ejecución de la macro hasta 3 veces si falla
+            for intento in range(3):
+                try:
+                    print(f"Ejecutando macro '{macro_name}', intento {intento + 1}...")
+                    excel_app.Run(f"'{workbook.Name}'!{macro_name}")
+                    print("Macro ejecutada exitosamente.")
+                    break  # Salir del bucle si la macro se ejecuta sin errores
+                except Exception as e:
+                    print(f"Error al ejecutar la macro en el intento {intento + 1}: {str(e)}")
+                    if intento < 2:
+                        time.sleep(2)  # Esperar antes de reintentar
+                    else:
+                        raise Exception(f"Error al ejecutar la macro '{macro_name}': {str(e)}")
+
+            # Esperar 2 segundos antes de cerrar
+            time.sleep(2)
+
+            # Cerrar el archivo de Excel y la instancia
+            workbook.Close(SaveChanges=True)
+            excel_app.Quit()
+            print("Instancia de Excel cerrada.")
 
         except Exception as e:
-            logger.exception(f"Error al ejecutar la macro '{macro_name}': {e}")
-            raise Exception(f"Error al ejecutar la macro '{macro_name}': {e}")
-        finally:
-            # Cerrar el archivo de Excel y la instancia
-            if workbook:
-                workbook.Close(SaveChanges=True)
-                logger.debug("Archivo de Excel cerrado.")
-            if excel_app:
-                excel_app.Quit()
-                logger.debug("Instancia de Excel cerrada.")
+            raise Exception(f"Error al iniciar o manejar Excel: {str(e)}")
 
     def process_file(self) -> List[str]:
         """
@@ -228,83 +176,54 @@ class FileProcessor:
         Returns:
             List[str]: Lista de nombres de clientes procesados.
         """
-        if not self.local_file_path or not os.path.exists(self.local_file_path):
-            logger.error("El archivo local no existe o no ha sido descargado.")
-            raise Exception("El archivo local no existe o no ha sido descargado.")
+        # Leer el archivo Excel desde la hoja correspondiente
+        df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=3)
 
-        try:
-            # Leer el archivo Excel desde la hoja correspondiente
-            df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=3)
-            logger.debug(f"Datos leídos del archivo Excel: {self.local_file_path}")
+        # Remover espacios en blanco de los nombres de las columnas
+        df.columns = df.columns.str.strip()
 
-            # Remover espacios en blanco de los nombres de las columnas
-            df.columns = df.columns.str.strip()
-            logger.debug("Espacios en blanco removidos de los nombres de las columnas.")
+        # Verificar si 'Consignee' está en las columnas
+        if 'Consignee' not in df.columns:
+            raise ValueError("La columna 'Consignee' no se encontró.")
 
-            # Verificar si 'Consignee' está en las columnas
-            if 'Consignee' not in df.columns:
-                logger.error("La columna 'Consignee' no se encontró en el archivo Excel.")
-                raise ValueError("La columna 'Consignee' no se encontró.")
+        # Obtener los clientes registrados y sus aliases
+        clients = self.db.get_all_clients()
+        clients_dict = {}
+        for client_id, nombre, correo in clients:
+            aliases = self.db.get_aliases_for_client(client_id)
+            alias_list = [alias for alias_id, alias in aliases]
+            clients_dict[client_id] = {
+                'nombre': nombre,
+                'correo': correo,
+                'aliases': alias_list
+            }
 
-            # Obtener los clientes registrados y sus aliases
-            clients = self.db.get_all_clients()
-            clients_dict = {}
-            for client_id, nombre, correo in clients:
-                aliases = self.db.get_aliases_for_client(client_id)
-                alias_list = [alias for alias_id, alias in aliases]
-                clients_dict[client_id] = {
-                    'nombre': nombre,
-                    'correo': correo,
-                    'aliases': alias_list
-                }
-            logger.debug(f"Clientes obtenidos de la base de datos: {clients_dict.keys()}")
+        if not clients_dict:
+            raise ValueError("No hay clientes registrados en la base de datos.")
 
-            if not clients_dict:
-                logger.error("No hay clientes registrados en la base de datos.")
-                raise ValueError("No hay clientes registrados en la base de datos.")
+        os.makedirs(self.output_dir, exist_ok=True)
 
-            template_path = get_resource_path('template/plantilla_Excel.xlsx')
-            if not os.path.exists(template_path):
-                logger.error(f"La plantilla de Excel no existe en la ruta: {template_path}")
-                raise FileNotFoundError(f"La plantilla de Excel no existe en la ruta: {template_path}")
+        template_path = get_resource_path('template/plantilla_Excel.xlsx')
 
-            procesados = []
+        for client_id, client_data in clients_dict.items():
+            nombre = client_data['nombre']
+            aliases = client_data['aliases']
 
-            for client_id, client_data in clients_dict.items():
-                nombre = client_data['nombre']
-                aliases = client_data['aliases']
+            if not aliases:
+                continue  # Si el cliente no tiene aliases, continuar
 
-                if not aliases:
-                    logger.warning(f"El cliente '{nombre}' no tiene aliases registrados. Se omitirá.")
-                    continue  # Si el cliente no tiene aliases, continuar
+            # Filtrar los datos que coincidan con cualquiera de los aliases
+            df_cliente = df[df['Consignee'].isin(aliases)]
 
-                # Filtrar los datos que coincidan con cualquiera de los aliases
-                df_cliente = df[df['Consignee'].isin(aliases)]
+            if df_cliente.empty:
+                continue  # Si no hay datos, continuar
 
-                if df_cliente.empty:
-                    logger.info(f"No se encontraron datos para el cliente '{nombre}'.")
-                    continue  # Si no hay datos, continuar
+            output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
-                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+            # Crear el archivo Excel con formato
+            _save_excel_with_format(df_cliente, template_path, output_file)
 
-                # Crear el archivo Excel con formato
-                _save_excel_with_format(df_cliente, template_path, output_file)
-                logger.info(f"Reporte generado para el cliente '{nombre}': {output_file}")
-
-                procesados.append(nombre)
-
-            logger.info(f"Procesamiento completado para los clientes: {procesados}")
-            return procesados
-
-        except ValueError as ve:
-            logger.error(f"Valor inválido: {ve}")
-            raise
-        except FileNotFoundError as fnf:
-            logger.error(f"Archivo no encontrado: {fnf}")
-            raise
-        except Exception as e:
-            logger.exception(f"Error al procesar el archivo Excel: {e}")
-            raise
+        return [client_data['nombre'] for client_id, client_data in clients_dict.items()]
 
     def get_client_file(self, cliente: str) -> Optional[str]:
         """
@@ -318,19 +237,43 @@ class FileProcessor:
         """
         archivo = os.path.join(self.output_dir, f'{cliente}.xlsx')
         if os.path.exists(archivo):
-            logger.debug(f"Archivo encontrado para el cliente '{cliente}': {archivo}")
             return archivo
         else:
-            logger.warning(f"No se encontró el archivo para el cliente '{cliente}'.")
             return None
 
-    def close(self) -> None:
+    def close(self):
         """
         Cierra la conexión a la base de datos.
         """
+        self.db.close()
+
+    def get_last_update_date(self) -> Optional[str]:
+        """
+        Obtiene la fecha de la última actualización desde la hoja 'Hora Actualización'.
+
+        Returns:
+            Optional[str]: La fecha de la última actualización como cadena de texto.
+        """
+        if not self.local_file_path:
+            raise Exception("El archivo no ha sido descargado aún.")
+
         try:
-            self.db.close()
-            logger.debug("Conexión a la base de datos cerrada correctamente.")
+            # Cargar el libro de Excel
+            workbook = load_workbook(filename=self.local_file_path, data_only=True)
+            # Seleccionar la hoja 'Hora Actualización'
+            if 'Hora Actualización' in workbook.sheetnames:
+                sheet = workbook['Hora Actualización']
+                # Encontrar la columna que contiene 'Fecha de actualización' en la primera fila
+                for col in sheet.iter_cols(min_row=1, max_row=1):
+                    if col[0].value == 'Fecha de actualización':
+                        # Obtener el valor en la fila 2 de esa columna
+                        update_date = sheet.cell(row=2, column=col[0].column).value
+                        return str(update_date)
+                # Si no se encuentra la columna
+                return None
+            else:
+                # Si no existe la hoja 'Hora Actualización'
+                return None
         except Exception as e:
-            logger.exception(f"Error al cerrar la conexión a la base de datos: {e}")
-            raise
+            print(f"Error al obtener la fecha de actualización: {e}")
+            return None
