@@ -138,3 +138,23 @@ class ConfigManager:
         self.config.pop('microsoft_access_token', None)
         self.config.pop('email', None)
         self.save_config()
+
+    def get_email_body_template(self) -> str:
+        """
+        Retorna la plantilla de cuerpo de correo almacenada, o un texto por defecto.
+        """
+        return self.config.get("email_body_template", "Estimado {CLIENT_NAME},<br><br>Adjunto encontrarás tu reporte.")
+
+    def set_email_body_template(self, template: str):
+        """
+        Guarda la plantilla de cuerpo de correo y la persiste en el archivo de config.
+        """
+        self.config["email_body_template"] = template
+        self.save_config()
+
+    def get_sharepoint_full_url(self) -> str:
+        return self.config.get("sharepoint_full_url", "")
+
+    def set_sharepoint_full_url(self, full_url: str):
+        self.config["sharepoint_full_url"] = full_url
+        self.save_config()

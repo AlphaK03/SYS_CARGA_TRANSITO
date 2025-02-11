@@ -97,6 +97,20 @@ def init_styles():
         foreground='#0c1834'
     )
 
+    # Estilo para botones 'Emerald Green'
+    style.configure(
+        'EmeraldGreen.TButton',
+        foreground='white',
+        background='#007f3d',  # Verde esmeralda
+        borderwidth=1,
+        relief='solid'
+    )
+    style.map(
+        'EmeraldGreen.TButton',
+        foreground=[('active', 'white')],
+        background=[('active', '#006633')]  # Verde más oscuro al pasar el mouse
+    )
+
     style = ttk.Style()
 
     # Define estilos personalizados para las etiquetas de progreso

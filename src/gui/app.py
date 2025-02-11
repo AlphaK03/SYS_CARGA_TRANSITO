@@ -5,10 +5,14 @@ import os
 import socketserver
 import sqlite3
 import sys
+import time
+import urllib
 from datetime import datetime
 from urllib.parse import quote
 import threading
 from urllib.parse import urlparse, parse_qs
+
+import msal.exceptions
 import ttkbootstrap as ttk
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
@@ -38,14 +42,14 @@ from manager.client_manager import open_client_manager, on_tab_change, on_list_s
 
 from manager.client_manager import context_menu_add_to_list, show_context_menu
 
-from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
-    send_reports_to_selected_clients
 
-# Credenciales de Microsoft OAuth2
+from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
+    send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
+
+# Microsoft OAuth2 - ASW SAN JOSE
+
 MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
-MICROSOFT_CLIENT_SECRET = "pDK8Q~V63IOhtEe6KKrOzz8waIApiaXYrhq1MaFL"
 MICROSOFT_TENANT_ID = "common"
-REDIRECT_URI = "http://localhost:62190/"
 
 from gui.styles import init_styles
 # Importar funciones y clases desde los módulos que creamos
@@ -54,36 +58,8 @@ from gui.helpers import (
     get_email_google,
     get_microsoft_user_info,
 )
-import logging
 
-# Configuración básica de logging
-logging.basicConfig(
-    level=logging.DEBUG,  # Cambia a DEBUG para obtener más detalles
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),  # Guarda los logs en un archivo
-        logging.StreamHandler()          # También los muestra en la consola
-    ]
-)
-logger = logging.getLogger(__name__)
 
-def check_sharepoint_credentials(username, password):
-    try:
-        # URL base de tu sitio de SharePoint
-        site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
-
-        ctx = ClientContext(site_url).with_credentials(UserCredential(username, password))
-
-        # Intentar obtener información del sitio para validar las credenciales
-        web = ctx.web
-        ctx.load(web)
-        ctx.execute_query()
-
-        # Si la consulta se ejecuta correctamente, las credenciales son válidas
-        return True
-    except Exception as e:
-        logging.error(f"Error de autenticación en SharePoint: {e}")
-        return False
 
 class AuthHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, auth_code_container, **kwargs):
@@ -115,6 +91,9 @@ def open_user_manual_window():
 class Application(ttk.Window):
     def __init__(self):
         # Ajuste de DPI para Windows
+        self.send_no_button = None
+        self.send_yes_button = None
+        self.frame_opciones = None
         if sys.platform.startswith('win'):
             try:
                 from ctypes import windll
@@ -177,10 +156,10 @@ class Application(ttk.Window):
 
         self.undo_stack = []
 
-        # Configuración para FileProcessor (Reemplaza con tus URLs reales)
+        # Configuración para FileProcessor (en app.py o donde crees tu ventana principal)
         self.processor = FileProcessor(
-            site_url='https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS',
-            sharepoint_file_url='/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas Power BI.xlsm'
+            site_url=self.config_manager.get_sharepoint_site_url(),
+            sharepoint_file_url=self.config_manager.get_sharepoint_file_url()
         )
 
         # Inicializar EmailSender pasando la instancia de msal_app
@@ -222,23 +201,56 @@ class Application(ttk.Window):
             return None
 
     def get_sharepoint_access_token(self):
-        """Obtiene el token para SharePoint usando el tenant específico."""
-        scopes = ['https://chcconsultorescr.sharepoint.com/.default']  # Asegúrate de que este scope es correcto
+        """
+        Obtiene el token de acceso para SharePoint con manejo de errores.
+        Evita bloqueos si el usuario cierra la pestaña de autenticación sin iniciar sesión.
+        """
+        # Leer la site_url desde la configuración
+        raw_site_url = self.config_manager.get_sharepoint_site_url()
+
+        # Extraer el dominio base de SharePoint
+        parsed_url = urllib.parse.urlparse(raw_site_url)
+        base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+        # Definir los scopes dinámicamente
+        scopes = [f"{base_domain}/.default"]
+
         accounts = self.sharepoint_msal_app.get_accounts()
         result = None
 
+        # Intentar obtener el token en modo silencioso
         if accounts:
             result = self.sharepoint_msal_app.acquire_token_silent(scopes, account=accounts[0])
 
-        if not result or 'access_token' not in result:
-            result = self.sharepoint_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
-            self.sharepoint_token_cache.save(self.sharepoint_msal_app)  # Guarda el token en caché después de autenticar
-
-        if "access_token" in result:
+        if result and 'access_token' in result:
             return result['access_token']
+
+        # Si el token no se obtuvo silenciosamente, iniciar autenticación interactiva en un hilo
+        def acquire_token():
+            nonlocal result
+            try:
+                result = self.sharepoint_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
+            except Exception as e:
+                result = {'error_description': str(e)}
+
+        # Crear un hilo para la autenticación
+        auth_thread = threading.Thread(target=acquire_token, daemon=True)
+        auth_thread.start()
+
+        # Esperar con un timeout de 35 segundos
+        start_time = time.time()
+        while auth_thread.is_alive():
+            if time.time() - start_time > 35:
+                messagebox.showwarning("Tiempo agotado", "La autenticación tardó demasiado. Inténtalo de nuevo.")
+                return None
+            time.sleep(1)  # Esperar 1 segundo antes de verificar de nuevo
+
+        # Verificar si se obtuvo un token
+        if result and "access_token" in result:
+            return result["access_token"]
         else:
-            error_message = result.get('error_description', 'No se pudo obtener el token de acceso para SharePoint.')
-            messagebox.showerror("Error", f"Error al adquirir el token de acceso para SharePoint: {error_message}")
+            error_message = result.get("error_description", "No se pudo obtener el token de acceso para SharePoint.")
+            messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_message}")
             return None
 
     def clear_email_cache(self):
@@ -252,21 +264,49 @@ class Application(ttk.Window):
         menu_bar = tk.Menu(self)
         self.config(menu=menu_bar)
 
+        #
         # Menú "Configuración"
+        #
         config_menu = tk.Menu(menu_bar, tearoff=0)
-        config_menu.add_command(label="Configurar Cuenta", command=self.open_config_window)
-        config_menu.add_command(label="Cambiar correo de SharePoint", command=self.open_sharepoint_credentials_window)
-        config_menu.add_command(label="Salir", command=self.on_closing)
+
+        # Sección relacionada con el correo
+        config_menu.add_command(
+            label="Configurar Cuenta de Envío (Correo)",
+            command=self.open_config_window
+        )
+        config_menu.add_command(
+            label="Configurar Plantilla de Correo",
+            command=self.open_email_template_settings_window
+        )
+        config_menu.add_separator()  # Línea separadora
+
+
+        config_menu.add_command(
+            label="Configurar URL de Archivo en SharePoint",
+            command=self.open_sharepoint_file_settings_window
+        )
+        config_menu.add_separator()  # Otra línea separadora
+
+        # Opción para salir
+        config_menu.add_command(
+            label="Salir",
+            command=self.on_closing
+        )
+
         menu_bar.add_cascade(label="Configuración", menu=config_menu)
 
+        #
         # Menú "Gestión"
+        #
         gestion_menu = tk.Menu(menu_bar, tearoff=0)
         gestion_menu.add_command(label="Gestor de Clientes", command=self.open_client_manager)
-        gestion_menu.add_command(label="Importar Clientes(JSON)", command=self.import_clients)
-        gestion_menu.add_command(label="Exportar Clientes(JSON)", command=self.export_clients)
+        gestion_menu.add_command(label="Importar Clientes (JSON)", command=self.import_clients)
+        gestion_menu.add_command(label="Exportar Clientes (JSON)", command=self.export_clients)
         menu_bar.add_cascade(label="Gestión", menu=gestion_menu)
 
-        # Nuevo Menú "Ayuda"
+        #
+        # Menú "Ayuda"
+        #
         ayuda_menu = tk.Menu(menu_bar, tearoff=0)
         ayuda_menu.add_command(label="Acerca de", command=self.open_about_window)
         menu_bar.add_cascade(label="Ayuda", menu=ayuda_menu)
@@ -488,7 +528,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.2.5"
+        version = "Versión 2.3.3"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -623,290 +663,190 @@ class Application(ttk.Window):
         self.update_idletasks()  # Actualiza la interfaz para reflejar el cambio inmediatamente
 
     def open_config_window(self):
-        logger.debug("Iniciando la función open_config_window.")
+        """
+        Configuración de Correo y Autenticación, solo Microsoft
+        """
         try:
             config_window = tk.Toplevel(self)
-            logger.debug("Creada la ventana Toplevel para configuración.")
-
             config_window.title("Configuración de Correo y Autenticación")
-            config_window.configure(background='#f0f0f0')  # Fondo suave y profesional
-            logger.debug("Configurado el título y el fondo de la ventana de configuración.")
+            config_window.configure(background='#f0f0f0')
 
-            # Ajustar el tamaño de la ventana según la resolución de pantalla
             screen_width = config_window.winfo_screenwidth()
             screen_height = config_window.winfo_screenheight()
-            scaling_factor = min(screen_width / 1920,
-                                 screen_height / 1080)  # Factor de escala basado en resolución 1920x1080
-            logger.debug(
-                f"Resolución de pantalla obtenida: {screen_width}x{screen_height}. Factor de escala: {scaling_factor:.2f}")
+            scaling_factor = min(screen_width / 1920, screen_height / 1080)
 
-            window_width = min(int(screen_width * 0.3), 1200)  # 30% del ancho o máximo 1200 px
-            window_height = min(int(screen_height * 0.4), 900)  # 40% de la altura o máximo 900 px
-            logger.debug(f"Tamaño de ventana calculado: {window_width}x{window_height}")
-
-            # Centrar la ventana
+            window_width = min(int(screen_width * 0.3), 1200)
+            window_height = min(int(screen_height * 0.4), 900)
             self.center_window(config_window, window_width, window_height)
-            logger.debug("Ventana de configuración centrada en la pantalla.")
 
-            # Configuración del grid de la ventana
             config_window.columnconfigure(0, weight=1)
-            logger.debug("Configurado el grid de la ventana principal.")
 
-            # Frame para la información de autenticación
             auth_frame = ttk.Frame(config_window, padding=(20, 10))
             auth_frame.grid(row=0, column=0, sticky='nsew')
             auth_frame.columnconfigure(0, weight=1)
-            logger.debug("Creado el frame para la información de autenticación.")
 
-            # Etiqueta de título
             etiqueta_info = ttk.Label(
                 auth_frame,
                 text="Información de Autenticación de la Cuenta",
                 style='CustomTitle.TLabel'
             )
             etiqueta_info.grid(row=0, column=0, pady=(0, 10), sticky='w')
-            logger.debug("Añadida la etiqueta de título al frame de autenticación.")
 
-            # Separador horizontal
             separador = ttk.Separator(auth_frame, orient='horizontal')
             separador.grid(row=1, column=0, sticky='ew', pady=(0, 10))
-            logger.debug("Añadido el separador horizontal al frame de autenticación.")
 
-            # Inicializar etiquetas como atributos de la instancia para acceso global
-            self.etiqueta_email_actual = ttk.Label(
-                auth_frame,
-                text="Cargando información...",
-                style='CustomValue.TLabel'
-            )
+            self.etiqueta_email_actual = ttk.Label(auth_frame, text="Cargando información...",
+                                                   style='CustomValue.TLabel')
             self.etiqueta_email_actual.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
                                             sticky='w')
-            logger.debug("Creada la etiqueta para mostrar el email actual.")
 
-            self.etiqueta_nombre_value = ttk.Label(
-                auth_frame,
-                text="",
-                style='CustomValue.TLabel'
-            )
+            self.etiqueta_nombre_value = ttk.Label(auth_frame, text="", style='CustomValue.TLabel')
             self.etiqueta_nombre_value.grid(row=3, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
                                             sticky='w')
-            logger.debug("Creada la etiqueta para mostrar el nombre de usuario.")
 
-            # Obtener información del usuario autenticado
-            logger.debug("Obteniendo información del usuario autenticado.")
+            #logger.debug("Obteniendo información del usuario autenticado.")
             user_info = self.get_current_authenticated_user()
 
             if user_info:
                 email_autenticado = user_info['email']
                 nombre_usuario = user_info['name']
-                self.etiqueta_email_actual.config(text=f"Cuenta autenticada: {email_autenticado}")
-                self.etiqueta_nombre_value.config(text=f"Nombre de Usuario: {nombre_usuario}")
-                logger.info(f"Usuario autenticado: {email_autenticado}, Nombre: {nombre_usuario}")
+                self.etiqueta_email_actual.config(text=f"Cuenta Autenticada: {email_autenticado}")
+                self.etiqueta_nombre_value.config(text=f"Usuario: {nombre_usuario}")
+                #logger.info(f"Usuario autenticado: {email_autenticado}, Nombre: {nombre_usuario}")
             else:
                 self.etiqueta_email_actual.config(text="NO AUTENTICADO")
                 self.etiqueta_nombre_value.config(text="")
-                logger.warning("No se encontró información del usuario autenticado.")
+                #logger.warning("No se encontró información del usuario autenticado.")
 
-            # Frame para la selección del proveedor de correo
-            provider_frame = ttk.Frame(config_window, padding=(20, 10))
-            provider_frame.grid(row=1, column=0, sticky='nsew')
-            provider_frame.columnconfigure(0, weight=1)
-            logger.debug("Creado el frame para la selección del proveedor de correo.")
-
-            etiqueta_provider = ttk.Label(
-                provider_frame,
-                text="Proveedor de Correo:",
-                style='CustomSubtitle.TLabel'
-            )
-            etiqueta_provider.grid(row=0, column=0, pady=(0, 5), sticky='w')
-            logger.debug("Añadida la etiqueta para el proveedor de correo.")
-
-            # Opciones del proveedor de correo
-            proveedor_opciones = ['Google', 'Microsoft']
-            current_provider = self.config_manager.get_email_provider()
-            provider_var = tk.StringVar(value=current_provider if current_provider else 'Selecciona un proveedor')
-            logger.debug(f"Proveedor de correo actual: {current_provider}")
-
-            self.provider_menu = ttk.OptionMenu(provider_frame, provider_var, provider_var.get(), *proveedor_opciones)
-            self.provider_menu.config(width=30)  # Ancho adecuado para las opciones
-            self.provider_menu.grid(row=1, column=0, pady=(0, 10), sticky='w')
-            logger.debug("Añadido el menú desplegable para seleccionar el proveedor de correo.")
-
-            # Frame para los botones
             button_frame = ttk.Frame(config_window, padding=(20, 10))
             button_frame.grid(row=2, column=0, sticky='ew')
             button_frame.columnconfigure(0, weight=1)
-            logger.debug("Creado el frame para los botones de acción.")
 
-            # Definir estilos personalizados para una apariencia más profesional
             style = ttk.Style()
             style.configure('CustomTitle.TLabel', font=('Helvetica', 16, 'bold'), foreground='#333333')
             style.configure('CustomSubtitle.TLabel', font=('Helvetica', 12, 'bold'), foreground='#555555')
             style.configure('CustomValue.TLabel', font=('Helvetica', 12), foreground='#000000')
             style.configure('CustomError.TLabel', font=('Helvetica', 12, 'bold'), foreground='red')
-            logger.debug("Definidos los estilos personalizados para los widgets.")
 
-            # Definir funciones internas antes de asignarlas a los botones
             def iniciar_oauth2():
-                logger.debug("Iniciando el proceso de autenticación OAuth2.")
-                provider = provider_var.get()
-                logger.info(f"Proveedor seleccionado para autenticación: {provider}")
-                if provider not in ['Google', 'Microsoft']:
-                    logger.warning("Proveedor de correo no válido seleccionado.")
-                    messagebox.showwarning("Advertencia", "Por favor, selecciona un proveedor de correo.")
-                    return
-                self.config_manager.set_email_provider(provider)
-                logger.debug(f"Proveedor de correo establecido en la configuración: {provider}")
-
+                """
+                Solo Microsoft, sin Google
+                """
+                #logger.debug("Iniciando el proceso de autenticación Microsoft OAuth2.")
                 try:
-                    if provider == 'Google':
-                        logger.debug("Iniciando autenticación con Google.")
-                        client_secret_path = get_resource_path(
-                            'resources/client_secret_772362460829-n7pc2am5c1tkvp7l9jig619kqmtk2obi.apps.googleusercontent.com.json')
-                        flow = InstalledAppFlow.from_client_secrets_file(
-                            client_secret_path,
-                            scopes=EmailSender.GOOGLE_SCOPES
+                    tenant_id = "common"
+                    authority = f'https://login.microsoftonline.com/{tenant_id}' if tenant_id else 'https://login.microsoftonline.com/common'
+                    redirect_uri = "http://localhost:62190/"
+                    scopes = EmailSender.MS_SCOPES
+
+                    app = self.email_msal_app
+                    result = app.acquire_token_silent(scopes, account=None)
+                    #logger.debug("Intentando adquirir token silencioso para Microsoft.")
+
+                    if not result:
+                        #logger.debug("No se encontró token en caché, iniciando flujo de autenticación interactivo.")
+                        auth_url = app.get_authorization_request_url(
+                            scopes=scopes,
+                            redirect_uri=redirect_uri,
+                            response_mode='query',
+                            prompt='select_account'
                         )
-                        creds = flow.run_local_server(port=0)
-                        self.config_manager.set_google_credentials(creds)
-                        logger.info("Credenciales de Google almacenadas correctamente.")
-                        email_autenticado = get_email_google(creds)
-                        if email_autenticado:
+                        webbrowser.open(auth_url)
+                        auth_code = []
+                        #logger.debug("Abierta la URL de autenticación en el navegador.")
+
+                        class AuthHandler(http.server.SimpleHTTPRequestHandler):
+                            def __init__(self, *args, auth_code_container, **kwargs):
+                                self.auth_code_container = auth_code_container
+                                super().__init__(*args, **kwargs)
+
+                            def do_GET(self):
+                                parsed_path = urlparse(self.path)
+                                query = parse_qs(parsed_path.query)
+                                if 'code' in query:
+                                    self.auth_code_container.append(query['code'][0])
+                                    html_content = '<html><body><h1>Autenticación exitosa. Puedes cerrar esta ventana.</h1></body></html>'
+                                    self.send_response(200)
+                                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                                    self.end_headers()
+                                    self.wfile.write(html_content.encode('utf-8'))
+                                    #logger.debug("Código de autorización recibido de Microsoft.")
+                                else:
+                                    html_content = '<html><body><h1>Error en la autenticación.</h1></body></html>'
+                                    self.send_response(400)
+                                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                                    self.end_headers()
+                                    self.wfile.write(html_content.encode('utf-8'))
+                                    #logger.error("Error en la autenticación de Microsoft: Código no encontrado.")
+
+                        with socketserver.TCPServer(("", 62190), lambda *args, **kwargs: AuthHandler(*args,
+                                                                                                     auth_code_container=auth_code,
+                                                                                                     **kwargs)) as httpd:
+                            #logger.debug("Servidor HTTP iniciado para callback de autenticación Microsoft.")
+                            server_thread = threading.Thread(target=httpd.handle_request)
+                            server_thread.start()
+                            server_thread.join()
+                            #logger.debug("Servidor HTTP cerrado después de la respuesta.")
+
+                        if not auth_code:
+                            #logger.error("No se recibió el código de autorización de Microsoft.")
+                            messagebox.showerror("Error", "No se recibió el código de autorización de Microsoft.")
+                            return
+
+                        result = app.acquire_token_by_authorization_code(auth_code[0], scopes=scopes,
+                                                                         redirect_uri=redirect_uri)
+                        self.email_token_cache.save(app)
+                        #logger.debug("Token de Microsoft adquirido y cacheado correctamente.")
+
+                    if "access_token" in result:
+                        user_info = self.get_current_authenticated_user()
+                        if user_info:
+                            email_autenticado = user_info['email']
+                            nombre_usuario = user_info['name']
                             self.config_manager.set_email(email_autenticado)
                             self.etiqueta_email_actual.config(text=f"Cuenta autenticada: {email_autenticado}")
-                            self.etiqueta_nombre_value.config(text="Nombre de Usuario: (No disponible)")
-                            logger.info(f"Autenticación de Google exitosa para el email: {email_autenticado}")
-                            messagebox.showinfo("Éxito", "Autenticación de Google exitosa.")
+                            self.etiqueta_nombre_value.config(text=f"Nombre de Usuario: {nombre_usuario}")
+                            #logger.info(f"Autenticación de Microsoft exitosa para el email: {email_autenticado}")
+                            messagebox.showinfo("Éxito", "Autenticación de Microsoft exitosa.")
                         else:
-                            logger.error("No se pudo obtener el correo electrónico del usuario de Google.")
-                            messagebox.showerror("Error", "No se pudo obtener el correo electrónico del usuario.")
-
-                    elif provider == 'Microsoft':
-                        logger.debug("Iniciando autenticación con Microsoft.")
-                        client_id = MICROSOFT_CLIENT_ID
-                        tenant_id = MICROSOFT_TENANT_ID
-                        authority = f'https://login.microsoftonline.com/{tenant_id}' if tenant_id else 'https://login.microsoftonline.com/common'
-                        redirect_uri = REDIRECT_URI
-                        scopes = EmailSender.MS_SCOPES
-                        logger.debug(f"Configuración de MSAL para Microsoft con authority: {authority}")
-
-                        app = self.email_msal_app  # Usar la instancia existente
-                        result = app.acquire_token_silent(scopes, account=None)
-                        logger.debug("Intentando adquirir token silencioso para Microsoft.")
-
-                        if not result:
-                            logger.debug("No se encontró token en caché, iniciando flujo de autenticación interactivo.")
-                            auth_url = app.get_authorization_request_url(
-                                scopes=scopes,
-                                redirect_uri=redirect_uri,
-                                response_mode='query',
-                                prompt='select_account'
-                            )
-                            webbrowser.open(auth_url)
-                            auth_code = []
-                            logger.debug("Abierta la URL de autenticación en el navegador.")
-
-                            class AuthHandler(http.server.SimpleHTTPRequestHandler):
-                                def __init__(self, *args, auth_code_container, **kwargs):
-                                    self.auth_code_container = auth_code_container
-                                    super().__init__(*args, **kwargs)
-
-                                def do_GET(self):
-                                    parsed_path = urlparse(self.path)
-                                    query = parse_qs(parsed_path.query)
-                                    if 'code' in query:
-                                        self.auth_code_container.append(query['code'][0])
-                                        html_content = '<html><body><h1>Autenticación exitosa. Puedes cerrar esta ventana.</h1></body></html>'
-                                        self.send_response(200)
-                                        self.send_header('Content-type', 'text/html; charset=utf-8')
-                                        self.end_headers()
-                                        self.wfile.write(html_content.encode('utf-8'))
-                                        logger.debug("Código de autorización recibido de Microsoft.")
-                                    else:
-                                        html_content = '<html><body><h1>Error en la autenticación.</h1></body></html>'
-                                        self.send_response(400)
-                                        self.send_header('Content-type', 'text/html; charset=utf-8')
-                                        self.end_headers()
-                                        self.wfile.write(html_content.encode('utf-8'))
-                                        logger.error("Error en la autenticación de Microsoft: Código no encontrado.")
-
-                            # Iniciar el servidor y esperar la respuesta
-                            with socketserver.TCPServer(("", 62190), lambda *args, **kwargs: AuthHandler(
-                                    *args,
-                                    auth_code_container=auth_code,
-                                    **kwargs)) as httpd:
-                                logger.debug(
-                                    "Servidor HTTP iniciado para manejar el callback de autenticación de Microsoft.")
-                                server_thread = threading.Thread(target=httpd.handle_request)
-                                server_thread.start()
-                                server_thread.join()
-                                logger.debug("Servidor HTTP cerrado después de recibir la respuesta.")
-
-                            if not auth_code:
-                                logger.error("No se recibió el código de autorización de Microsoft.")
-                                messagebox.showerror("Error", "No se recibió el código de autorización de Microsoft.")
-                                return
-
-                            result = app.acquire_token_by_authorization_code(auth_code[0], scopes=scopes,
-                                                                             redirect_uri=redirect_uri)
-                            self.email_token_cache.save(app)
-                            logger.debug("Token de Microsoft adquirido y cacheado correctamente.")
-
-                        if "access_token" in result:
-                            user_info = self.get_current_authenticated_user()
-                            if user_info:
-                                email_autenticado = user_info['email']
-                                nombre_usuario = user_info['name']
-                                self.config_manager.set_email(email_autenticado)
-                                self.etiqueta_email_actual.config(text=f"Cuenta autenticada: {email_autenticado}")
-                                self.etiqueta_nombre_value.config(text=f"Nombre de Usuario: {nombre_usuario}")
-                                logger.info(f"Autenticación de Microsoft exitosa para el email: {email_autenticado}")
-                                messagebox.showinfo("Éxito", "Autenticación de Microsoft exitosa.")
-                            else:
-                                logger.error("No se pudo obtener la información del usuario de Microsoft.")
-                                messagebox.showerror("Error", "No se pudo obtener la información del usuario.")
-                        else:
-                            error_description = result.get('error_description',
-                                                           'No se pudo obtener el token de acceso.')
-                            logger.error(f"Error al adquirir el token de acceso de Microsoft: {error_description}")
-                            messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_description}")
+                            #logger.error("No se pudo obtener la información del usuario de Microsoft.")
+                            messagebox.showerror("Error", "No se pudo obtener la información del usuario.")
+                    else:
+                        error_description = result.get('error_description', 'No se pudo obtener el token de acceso.')
+                        #logger.error(f"Error al adquirir el token de acceso de Microsoft: {error_description}")
+                        messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_description}")
 
                 except Exception as e:
-                    logger.exception("Error durante la autenticación OAuth2.")
+                    #logger.exception("Error durante la autenticación OAuth2 con Microsoft.")
                     messagebox.showerror("Error", f"Error durante la autenticación: {str(e)}")
 
             def cerrar_sesion():
-                logger.debug("Iniciando el proceso de cierre de sesión.")
+                #logger.debug("Iniciando el proceso de cierre de sesión.")
                 try:
-                    # Limpiar credenciales almacenadas
                     self.config_manager.clear_credentials()
                     self.email_token_cache.clear_cache()
                     self.sharepoint_token_cache.clear_cache()
                     self.etiqueta_email_actual.config(text="NO AUTENTICADO")
                     self.etiqueta_nombre_value.config(text="")
-                    logger.info("Credenciales y cachés limpiados correctamente. Usuario desautenticado.")
+                    #logger.info("Credenciales y cachés limpiados. Usuario desautenticado.")
 
                     messagebox.showinfo("Cierre de sesión", "Sesión cerrada. Por favor, vuelve a iniciar sesión.")
                     config_window.destroy()
-                    logger.debug("Ventana de configuración cerrada después del cierre de sesión.")
+                    #logger.debug("Ventana de configuración cerrada. Reabriendo para reflejar estado desautenticado.")
                     self.open_config_window()
-                    logger.debug("Reabierta la ventana de configuración para reflejar el estado desautenticado.")
-
                 except Exception as e:
-                    logger.exception("No se pudo cerrar sesión correctamente.")
+                    #logger.exception("No se pudo cerrar sesión correctamente.")
                     messagebox.showerror("Error", f"No se pudo cerrar sesión: {str(e)}")
 
-            # Botón para iniciar la autenticación OAuth2
             self.boton_autenticar = ttk.Button(
                 button_frame,
-                text="Iniciar Sesión con OAuth2",
+                text="Iniciar Sesión con Microsoft",
                 command=iniciar_oauth2,
                 style='Success.TButton',
                 width=25
             )
             self.boton_autenticar.grid(row=0, column=0, pady=(0, 10), sticky='ew')
-            logger.debug("Añadido el botón para iniciar la autenticación OAuth2.")
 
-            # Botón para cerrar sesión y reautenticar
             self.boton_cerrar_sesion = ttk.Button(
                 button_frame,
                 text="Cerrar Sesión",
@@ -915,57 +855,163 @@ class Application(ttk.Window):
                 width=25
             )
             self.boton_cerrar_sesion.grid(row=1, column=0, pady=(0, 10), sticky='ew')
-            logger.debug("Añadido el botón para cerrar sesión.")
 
-            # Asignar funciones a los botones
-            # Ya se asignaron directamente al crear los botones, por lo que esta línea puede omitirse
-            # self.boton_autenticar.config(command=iniciar_oauth2)
-            # self.boton_cerrar_sesion.config(command=cerrar_sesion)
-            logger.debug("Funciones asignadas a los botones de autenticación y cierre de sesión.")
-
-            # Configurar la ventana para que sea modal
             config_window.transient(self)
             config_window.grab_set()
             self.wait_window(config_window)
-            logger.debug("Configuración de la ventana como modal completada. Esperando a que se cierre.")
 
         except Exception as e:
-            logger.exception("Error al abrir la ventana de configuración.")
+            #logger.exception("Error al abrir la ventana de configuración.")
             messagebox.showerror("Error", f"No se pudo abrir la ventana de configuración: {str(e)}")
 
-    def filter_and_generate(self):
-        # URLs fijas dentro del código
-        site_url = 'https://chcconsultorescr.sharepoint.com/sites/CONSULTORAS'
-        file_url = '/sites/CONSULTORAS/Shared Documents/Pruebas ASW/Proyecto Informe de Cargas en Transito/Informe de cargas Power BI.xlsm'
-        username = self.config_manager.get_sharepoint_username()
-        password = self.config_manager.get_sharepoint_password()
+    def open_email_template_settings_window(self):
+        """
+        Abre una ventana para configurar la plantilla del cuerpo de correo.
+        El usuario puede usar {CLIENT_NAME} como marcador de posición.
+        """
+        config_window = tk.Toplevel(self)
+        config_window.title("Configurar Plantilla de Correo")
 
-        if not username or not password:
-            self.update_progress("Por favor, configura tu usuario y contraseña de SharePoint.", style='Warning.TLabel')
-            self.stop_loading_animation()
-            self.open_sharepoint_credentials_window()
-            return
+        # Calcular tamaño y centrar
+        screen_width = config_window.winfo_screenwidth()
+        screen_height = config_window.winfo_screenheight()
+        scaling_factor = min(screen_width / 1920, screen_height / 1080)
+        window_width = int(700 * scaling_factor)
+        window_height = int(500 * scaling_factor)
+        self.center_window(config_window, window_width, window_height)
+
+        frame = ttk.Frame(config_window, padding=10)
+        frame.pack(expand=True, fill="both")
+
+        # Frame superior para botones
+        top_frame = ttk.Frame(frame)
+        top_frame.pack(fill='x', pady=(0, 10))
+
+        # Botón de guardar (ahora al lado de los otros botones)
+        def save_template():
+            template = text_box.get("1.0", tk.END).strip()
+            self.config_manager.set_email_body_template(template)
+            messagebox.showinfo("Éxito", "Plantilla de correo guardada exitosamente.")
+            config_window.destroy()
+
+        save_button = ttk.Button(
+            top_frame,
+            text="Guardar",
+            command=save_template,
+            style='GreenSuccess.TButton'
+        )
+        save_button.pack(side='right', padx=5)
+
+        # Botón para insertar {CLIENT_NAME}
+        def insert_client_placeholder():
+            text_box.insert(tk.INSERT, "{CLIENT_NAME}")
+
+        insert_placeholder_button = ttk.Button(
+            top_frame,
+            text="Insertar {CLIENT_NAME}",
+            command=insert_client_placeholder,
+            style='BlueZodiac.TButton'
+        )
+        insert_placeholder_button.pack(side='left', padx=5)
+
+        # Botón para insertar texto en negrita
+        def insert_bold_tags():
+            text_box.insert(tk.INSERT, "<b></b>")
+            text_box.mark_set("insert", f"{text_box.index('insert')}-4c")
+
+        bold_button = ttk.Button(
+            top_frame,
+            text="Negrita (<b>)",
+            command=insert_bold_tags,
+            style='BlueZodiac.TButton'
+        )
+        bold_button.pack(side='left', padx=5)
+
+        # Botón para insertar salto de línea <br>
+        def insert_br_tag():
+            text_box.insert(tk.INSERT, "<br>")
+
+        br_button = ttk.Button(
+            top_frame,
+            text="Salto de línea (<br>)",
+            command=insert_br_tag,
+            style='BlueZodiac.TButton'
+        )
+        br_button.pack(side='left', padx=5)
+
+        # Explicación general
+        instrucciones_label = ttk.Label(
+            frame,
+            text=(
+                "Personaliza el cuerpo del correo. Puedes usar {CLIENT_NAME} donde desees que aparezca el nombre del cliente.\n"
+                "También puedes escribir texto plano o usar etiquetas HTML básicas como <b> para negrita y <br> para saltos de línea."
+            ),
+            style='Custom.TLabel',
+            justify='left',
+            wraplength=window_width - 20
+        )
+        instrucciones_label.pack(pady=5, anchor='w')
+
+        # ScrolledText para editar la plantilla
+        from tkinter.scrolledtext import ScrolledText
+        text_box = ScrolledText(frame, wrap=tk.WORD, width=80, height=15)
+        text_box.pack(expand=True, fill='both', padx=5, pady=5)
+
+        # Cargar la plantilla actual desde config
+        current_template = self.config_manager.get_email_body_template()
+        text_box.insert(tk.END, current_template)
+
+        # Configurar la ventana como modal
+        config_window.transient(self)
+        config_window.grab_set()
+        self.wait_window(config_window)
+
+    def filter_and_generate(self):
+
+        # Ruta de la carpeta donde se generan los reportes
+        report_folder = os.path.join(os.getcwd(), "data/reportes")  # Ajusta la ruta si es necesario
+
+        # Verificar si existen reportes previos en la carpeta
+        if os.path.exists(report_folder) and os.listdir(report_folder):
+            answer = messagebox.askyesno(
+                "Advertencia",
+                "Existen reportes generados anteriormente en la carpeta 'data/reportes'. "
+                "Si continúa, los reportes anteriores serán reemplazados.\n\n¿Desea continuar?"
+            )
+            if not answer:
+                self.update_progress("Operación cancelada por el usuario.", style='Warning.TLabel')
+                return
+
+        # Leer site_url/file_url desde config_manager
+        site_url = self.config_manager.get_sharepoint_site_url()
+        file_url = self.config_manager.get_sharepoint_file_url()
 
         try:
-            # Crear la instancia de FileProcessor
+            # Crear instancia del FileProcessor
             self.processor = FileProcessor(site_url, file_url)
-            self.update_progress("", style='Info.TLabel')
+
+            # 1) Obtener token de SharePoint (OAuth2)
             self.update_progress("********************************************************", style='Delete.TLabel')
-            # Descargando el archivo
+            self.update_progress("Esperando respuesta del servidor...", style='Info.TLabel')
+            token = self.get_sharepoint_access_token()
+            if not token:
+                messagebox.showerror("Error", "No se pudo obtener el token de acceso para SharePoint.")
+                return
+
+            # 2) Descargar el archivo usando el token
+            self.update_progress("********************************************************", style='Delete.TLabel')
             self.update_progress("Descargando el informe...", style='Info.TLabel')
-            self.update_idletasks()
-            self.processor.download_file(username, password)
+            self.processor.download_file_with_token(token)
+
+            # 3) Ejecutar la macro
             self.update_progress("********************************************************", style='Delete.TLabel')
-            # Ejecutar la macro
             self.update_progress("Actualizando el informe...", style='Info.TLabel')
-            self.update_idletasks()
             self.processor.run_macro()
+
+            # 4) Procesar/generar reportes
             self.update_progress("********************************************************", style='Delete.TLabel')
-            # Generar reportes
             self.update_progress("Generando reportes...", style='Info.TLabel')
-            self.update_idletasks()
             self.processor.process_file()
-            self.update_progress("********************************************************", style='Delete.TLabel')
 
             # Obtener la fecha de la última actualización
             last_update_date = self.processor.get_last_update_date()
@@ -984,7 +1030,17 @@ class Application(ttk.Window):
 
 
             # Mostrar opciones de envío debajo del mensaje de éxito
-            self.show_send_options()
+            messagebox.showinfo("Éxito", "Reportes generados correctamente.")
+            answer = self.ask_yes_no_custom(
+                "Enviar Reportes",
+                "¿Desea enviar los reportes ahora?"
+            )
+            if answer:
+                self.send_mails()
+            else:
+                # El usuario ha dicho NO
+                self.update_progress("********************************************************", style='Delete.TLabel')
+                self.update_progress("Los reportes no fueron enviados.", style='Info.TLabel')
 
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
@@ -994,128 +1050,67 @@ class Application(ttk.Window):
                 self.processor.close()
             self.stop_loading_animation()
 
-    def show_send_options(self):
-        # Crear un frame para las opciones de envío
-        self.frame_opciones = ttk.Frame(self)
-        self.frame_opciones.grid(row=5, column=0, pady=(10, 0), sticky='n')
-
-        # Etiqueta de la pregunta
-        pregunta_label = ttk.Label(self.frame_opciones, text="¿Desea enviar los reportes?", style='Info.TLabel')
-        pregunta_label.grid(row=0, column=0, columnspan=2, pady=(0, 5))
-
-        # Botones Sí y No alineados juntos
-        self.send_yes_button = ttk.Button(self.frame_opciones, text="Sí", command=self.send_mails,
-                                          style='BlueZodiac.TButton')
-        self.send_yes_button.grid(row=1, column=0, padx=5, sticky='e')
-
-        self.send_no_button = ttk.Button(self.frame_opciones, text="No", command=self.hide_send_options,
-                                         style='RedColor.TButton')
-        self.send_no_button.grid(row=1, column=1, padx=5, sticky='w')
-
-    def hide_send_options(self):
-        # Ocultar el frame de opciones después de seleccionar No
-        self.frame_opciones.grid_remove()
-        self.update_progress("********************************************************", style='Delete.TLabel')
-
-    def send_reports(self):
+    def ask_yes_no_custom(self, title: str, message: str) -> bool:
         """
-        Inicia el proceso de envío de reportes por correo electrónico.
+        Muestra un diálogo personalizado con estilo ttk, en lugar de usar messagebox.askyesno.
+        Devuelve True si el usuario pulsa 'Sí', False si pulsa 'No' o cierra la ventana.
         """
-        # Mostrar el GIF de carga y actualizar el mensaje de progreso
-        self.start_loading_animation()
-        self.update_progress("Verificando autenticación...", style='Info.TLabel')
 
-        # Obtener la información del usuario autenticado
-        user_info = self.get_current_authenticated_user()
+        dialog = tk.Toplevel(self)
+        dialog.title(title)
 
-        if not user_info:
-            self.update_progress("No estás autenticado. Iniciando sesión...", style='Warning.TLabel')
-            # Abrir la ventana de configuración para iniciar sesión
-            self.open_config_window()
-            # Después de cerrar la ventana de configuración, verificar nuevamente la autenticación
-            user_info = self.get_current_authenticated_user()
-            if not user_info:
-                self.update_progress("Autenticación fallida. No se pueden enviar correos.", style='Error.TLabel')
-                self.stop_loading_animation()
-                return
-            else:
-                self.update_progress("Autenticación exitosa. Preparando para enviar correos...", style='Success.TLabel')
+        # Opcional: centrar la ventana
+        width, height = 400, 200
+        self.center_window(dialog, width, height)
 
-        # Continuar con el envío de correos si está autenticado
-        try:
-            email = user_info['email']
-            if not email:
-                self.update_progress("No se pudo obtener el correo electrónico del usuario.", style='Error.TLabel')
-                self.stop_loading_animation()
-                return
+        # Evitar interacción con la ventana principal mientras está abierto (modal)
+        dialog.transient(self)
+        dialog.grab_set()
 
-            # Obtener todas las listas disponibles (si aplica)
-            listas = self.db.get_all_lists()
-            if not listas:
-                messagebox.showwarning("Advertencia", "No hay listas disponibles. Por favor, crea una lista primero.")
-                self.update_progress("No hay listas disponibles para enviar correos.", style='Warning.TLabel')
-                self.stop_loading_animation()
-                return
+        # Frame principal
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(expand=True, fill='both')
 
-            # Seleccionar la lista para enviar correos
-            lista_nombres = [nombre for (id, nombre) in listas]
-            list_var = tk.StringVar(value=lista_nombres[0] if lista_nombres else '')
+        # Etiqueta con el mensaje
+        label_message = ttk.Label(frame, text=message, style='Info.TLabel')
+        label_message.pack(pady=(0, 20), anchor='center')
 
-            select_list_window = tk.Toplevel(self)
-            select_list_window.title("Seleccionar Lista")
+        # Variable para almacenar la respuesta del usuario
+        user_answer = tk.BooleanVar(value=False)
 
-            # Ajustar el tamaño inicial de la ventana según el escalado
-            initial_width = int(300 * self.scaling_factor)
-            initial_height = int(250 * self.scaling_factor)
+        # Funciones internas para los botones
+        def on_yes():
+            user_answer.set(True)
+            dialog.destroy()
 
-            self.center_window(select_list_window, initial_width, initial_height)
+        def on_no():
+            user_answer.set(False)
+            dialog.destroy()
 
-            etiqueta_lista = ttk.Label(select_list_window, text="Selecciona la lista para enviar correos:",
-                                       style='Custom.TLabel')
-            etiqueta_lista.pack(pady=5)
+        # Botón "Sí"
+        button_yes = ttk.Button(frame, text="Sí", command=on_yes, style='BlueZodiac.TButton')
+        button_yes.pack(side='left', expand=True, padx=10)
 
-            list_menu = ttk.OptionMenu(select_list_window, list_var, *lista_nombres)
-            list_menu.pack(pady=5)
+        # Botón "No"
+        button_no = ttk.Button(frame, text="No", command=on_no, style='RedColor.TButton')
+        button_no.pack(side='right', expand=True, padx=10)
 
-            def confirmar_lista():
-                seleccion = list_var.get()
-                list_id = None
-                for id, nombre in listas:
-                    if nombre == seleccion:
-                        list_id = id
-                        break
-                if list_id is not None:
-                    select_list_window.destroy()
-                    self.send_mails_to_list(list_id)
-                else:
-                    messagebox.showerror("Error", "No se pudo obtener la lista seleccionada.")
+        # Esperar hasta que la ventana se destruya para continuar
+        self.wait_window(dialog)
 
-            boton_confirmar = ttk.Button(
-                select_list_window,
-                text="Confirmar",
-                command=confirmar_lista,
-                style='GreenSuccess.TButton'
-            )
-            boton_confirmar.pack(pady=10)
+        return user_answer.get()
 
-            select_list_window.transient(self)
-            select_list_window.grab_set()
-            self.wait_window(select_list_window)
-
-        except Exception as e:
-            self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
-        finally:
-            self.stop_loading_animation()
 
     def send_mails(self):
         # Mostrar el GIF de carga y actualizar el mensaje de progreso
-        self.start_loading_animation()
+        self.update_progress("********************************************************", style='Delete.TLabel')
         self.update_progress("Verificando autenticación...", style='Info.TLabel')
 
         # Obtener la información del usuario autenticado
         user_info = self.get_current_authenticated_user()
 
         if not user_info:
+            self.update_progress("********************************************************", style='Delete.TLabel')
             self.update_progress("No estás autenticado. Iniciando sesión...", style='Warning.TLabel')
             # Abrir la ventana de configuración para iniciar sesión
             self.open_config_window()
@@ -1209,7 +1204,6 @@ class Application(ttk.Window):
     def send_mails_to_list(self, list_id):
         self.start_loading_animation()
         self.update_progress("********************************************************", style='Delete.TLabel')
-
         self.update_progress("Enviando los reportes...", style='Info.TLabel')
         self.update_idletasks()
 
@@ -1218,36 +1212,40 @@ class Application(ttk.Window):
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("Primero debes generar los reportes.", style='Warning.TLabel')
                 self.stop_loading_animation()
-
                 return
 
+            # Extrae todos los campos: ID, Nombre, Correo, Correo CC y Correo BCC
             clientes_con_correo = [
-                (client_id, nombre, correo)
-                for (client_id, nombre, correo) in self.db.get_clients_by_list(list_id)
+                (client_id, nombre, correo, correo_cc, correo_bcc)
+                for (client_id, nombre, correo, correo_cc, correo_bcc) in self.db.get_clients_by_list(list_id)
                 if correo and correo.lower().strip() != '(correo sin definir)'
             ]
-
             if not clientes_con_correo:
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("No hay clientes con correos asociados para enviar.", style='Warning.TLabel')
-
                 self.stop_loading_animation()
                 return
 
-            sender = EmailSender(self.email_msal_app)
+            template = self.config_manager.get_email_body_template()
             errores_envio = []
-            for client_id, cliente, correo in clientes_con_correo:
+            for client_id, cliente, correo, correo_cc, correo_bcc in clientes_con_correo:
                 archivo_path = self.processor.get_client_file(cliente)
                 if archivo_path:
+                    cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
                     asunto = f"Reporte para {cliente}"
-                    cuerpo_html = f"<h1>Estimado {cliente}</h1><p>Adjunto encontrará su reporte.</p>"
-                    success, msg = self.email_sender.send_email(correo, asunto, cuerpo_html, archivo_path)
+                    # Llamada actualizada para incluir cc y bcc
+                    success, msg = self.email_sender.send_email(
+                        to_email=correo,
+                        subject=asunto,
+                        html_content=cuerpo_html,
+                        attachment_path=archivo_path,
+                        cc_emails=correo_cc,
+                        bcc_emails=correo_bcc
+                    )
                     if not success:
                         if "Se requiere reautenticación" in msg:
-                            # Solicitar reautenticación
                             self.update_progress("", style='Info.TLabel')
                             self.update_progress("Reautenticación requerida. Por favor, inicia sesión nuevamente.",
-
                                                  style='Warning.TLabel')
                             self.open_config_window()
                             errores_envio.append(f"Reautenticación requerida para {cliente} ({correo}).")
@@ -1263,8 +1261,7 @@ class Application(ttk.Window):
             else:
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("Reportes enviados exitosamente!", style='Success.TLabel')
-                # Programar la limpieza del mensaje de progreso después de 3 segundos
-                #self.after(3000, lambda: self.update_progress("", style='Info.TLabel'))
+
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
         finally:
@@ -1566,125 +1563,56 @@ class Application(ttk.Window):
     def edit_alias_inline(self, event):
         edit_alias_inline(self, event)
 
-    def open_sharepoint_credentials_window(self):
-        # Obtener la resolución de pantalla y calcular el factor de escala
+    def open_sharepoint_file_settings_window(self):
+        """
+        Abre una ventana para configurar la URL del sitio de SharePoint y la ruta del archivo.
+        """
+        config_window = tk.Toplevel(self)
+        config_window.title("Configurar URL de SharePoint")
+
+        # Ajustar tamaño y centrar la ventana
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        scaling_factor = min(screen_width / 1920, screen_height / 1080)  # Basado en 1920x1080
-        window_width = min(int(screen_width * 0.3 * scaling_factor), 1200)  # 30% del ancho o máximo 1200 px
-        window_height = min(int(screen_height * 0.4 * scaling_factor), 900)
-
-        # Crear la ventana de configuración de credenciales
-        config_window = ttk.Toplevel(self)
-        config_window.title("Configurar Credenciales de SharePoint")
-
-
+        scaling_factor = min(screen_width / 1920, screen_height / 1080)
+        window_width = int(500 * scaling_factor)
+        window_height = int(250 * scaling_factor)
         self.center_window(config_window, window_width, window_height)
 
-        # Configuración del grid
-        config_window.columnconfigure(0, weight=1)
+        # Crear un frame principal
+        frame = ttk.Frame(config_window, padding=20)
+        frame.pack(expand=True, fill="both")
 
-        etiqueta_info = ttk.Label(
-            config_window,
-            text="Ingresa tus credenciales de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_info.grid(row=0, column=0, pady=int(10 * scaling_factor), sticky='w')
+        # Etiqueta + Entry para Site URL
+        ttk.Label(frame, text="Site URL de SharePoint:", style='Custom.TLabel').grid(row=0, column=0, sticky='w')
+        site_url_var = tk.StringVar(value=self.config_manager.get_sharepoint_site_url())
+        site_url_entry = ttk.Entry(frame, textvariable=site_url_var, width=80)
+        site_url_entry.grid(row=1, column=0, padx=5, pady=5, sticky='ew')
 
-        etiqueta_username = ttk.Label(
-            config_window,
-            text="Usuario de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_username.grid(row=1, column=0, pady=int(5 * scaling_factor), sticky='w')
+        # Etiqueta + Entry para File URL
+        ttk.Label(frame, text="File URL en SharePoint:", style='Custom.TLabel').grid(row=2, column=0, sticky='w')
+        file_url_var = tk.StringVar(value=self.config_manager.get_sharepoint_file_url())
+        file_url_entry = ttk.Entry(frame, textvariable=file_url_var, width=80)
+        file_url_entry.grid(row=3, column=0, padx=5, pady=5, sticky='ew')
 
-        entrada_username = ttk.Entry(config_window)
-        entrada_username.insert(0, self.config_manager.get_sharepoint_username())
-        entrada_username.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor), sticky='ew')
-
-        etiqueta_password = ttk.Label(
-            config_window,
-            text="Contraseña de SharePoint:",
-            style='Custom.TLabel'
-        )
-        etiqueta_password.grid(row=3, column=0, pady=int(5 * scaling_factor), sticky='w')
-
-        # Configuración de la entrada de contraseña con alternancia de visibilidad
-        frame_password = ttk.Frame(config_window)
-        frame_password.grid(row=4, column=0, pady=int(5 * scaling_factor), sticky='ew')
-
-        entrada_password = ttk.Entry(frame_password, show='*')
-        entrada_password.grid(row=0, column=0, sticky='ew', padx=int(5 * scaling_factor), pady=int(5 * scaling_factor))
-
-        # Cargar imágenes de los íconos de ojo usando rutas seguras
-        try:
-            eye_open_path = get_resource_path('resources/eye_open.png')
-            eye_closed_path = get_resource_path('resources/eye_closed.png')
-
-            # Redimensionar los iconos de acuerdo al factor de escala
-            icon_size = int(20 * scaling_factor)
-            eye_open_img = Image.open(eye_open_path)
-            eye_closed_img = Image.open(eye_closed_path)
-            eye_open_photo = ImageTk.PhotoImage(eye_open_img.resize((icon_size, icon_size)))
-            eye_closed_photo = ImageTk.PhotoImage(eye_closed_img.resize((icon_size, icon_size)))
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al cargar iconos de visibilidad de contraseña: {e}")
-            eye_open_photo = eye_closed_photo = None
-
-        password_visible = False
-
-        def toggle_password_visibility():
-            nonlocal password_visible
-            if password_visible:
-                entrada_password.config(show='*')
-                boton_toggle.config(image=eye_closed_photo)
-                password_visible = False
-            else:
-                entrada_password.config(show='')
-                boton_toggle.config(image=eye_open_photo)
-                password_visible = True
-
-        boton_toggle = ttk.Button(
-            frame_password,
-            image=eye_closed_photo,
-            command=toggle_password_visibility,
-            style='TButton'
-        )
-        boton_toggle.grid(row=0, column=1, padx=int(5 * scaling_factor), sticky='e')
-        frame_password.columnconfigure(0, weight=1)
-
-        # Función para guardar las credenciales
-        def guardar_sharepoint_credentials():
-            username = entrada_username.get().strip()
-            password = entrada_password.get().strip()
-
-            if not username or not password:
-                messagebox.showwarning("Advertencia", "Por favor, completa todos los campos.")
+        def save_urls():
+            site_url = site_url_var.get().strip()
+            file_url = file_url_var.get().strip()
+            if not site_url or not file_url:
+                messagebox.showwarning("Advertencia", "Por favor, completa ambos campos.")
                 return
 
-            try:
-                if check_sharepoint_credentials(username, password):
-                    self.config_manager.set_sharepoint_username(username)
-                    self.config_manager.set_sharepoint_password(password)
-                    config_window.destroy()
-                    messagebox.showinfo("Éxito", "Credenciales de SharePoint guardadas exitosamente.")
-                else:
-                    messagebox.showerror("Error",
-                                         "Las credenciales de SharePoint son incorrectas. Por favor, intenta nuevamente.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Ocurrió un error al verificar las credenciales: {e}")
+            # Guardar en la configuración
+            self.config_manager.set_sharepoint_site_url(site_url)
+            self.config_manager.set_sharepoint_file_url(file_url)
 
-        save_button = ttk.Button(
-            config_window,
-            text="Guardar",
-            command=guardar_sharepoint_credentials,
-            style='GreenSuccess.TButton'
-        )
-        save_button.grid(row=5, column=0, padx=int(5 * scaling_factor), pady=int(15 * scaling_factor), sticky='ew')
+            messagebox.showinfo("Éxito", "URLs de SharePoint guardadas exitosamente.")
+            config_window.destroy()
 
-        # Configurar la ventana como modal
-        config_window.columnconfigure(0, weight=1)
+        # Botón para guardar
+        save_button = ttk.Button(frame, text="Guardar", command=save_urls, style='GreenSuccess.TButton')
+        save_button.grid(row=4, column=0, pady=(10, 0), sticky='ew')
+
+        # Hacer la ventana modal
         config_window.transient(self)
         config_window.grab_set()
         self.wait_window(config_window)
@@ -1696,57 +1624,66 @@ class Application(ttk.Window):
         send_reports_to_selected_clients(self)
 
     def process_sending_reports(self, selected_items, tree):
-        """
-        Procesa el envío de reportes en un hilo separado.
-        """
         self.after(0, lambda: self.start_loading_animation())
         self.after(0, lambda: self.update_progress("Enviando reportes...", style='Info.TLabel'))
 
         errores_envio = []
         enviados_exitosamente = []
+        template = self.config_manager.get_email_body_template()
 
         for item in selected_items:
-            client_id = int(tree.item(item, 'values')[0])
-            cliente_nombre = tree.item(item, 'values')[1]
-            cliente_correo = tree.item(item, 'values')[2]
+            client_values = tree.item(item, 'values')
+            # Se asume que el Treeview tiene al menos 5 columnas:
+            # [ID, Nombre, Correo, Correo CC, Correo BCC]
+            client_id = int(client_values[0])
+            cliente_nombre = client_values[1]
+            cliente_correo = client_values[2]
+            cliente_correo_cc = client_values[3] if len(client_values) > 3 else ''
+            cliente_correo_bcc = client_values[4] if len(client_values) > 4 else ''
 
-            # Verificar que el correo es válido
             if not cliente_correo or cliente_correo.lower().strip() == '(correo sin definir)':
                 errores_envio.append(f"El cliente '{cliente_nombre}' no tiene un correo válido.")
                 continue
 
-            # Obtener la ruta del reporte generado
-            reporte_path = self.processor.get_client_file(cliente_nombre)  # Método existente en FileProcessor
+            reporte_path = self.processor.get_client_file(cliente_nombre)
             if not reporte_path or not os.path.exists(reporte_path):
-                errores_envio.append(f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes")
+                errores_envio.append(
+                    f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes")
                 continue
 
-            # Preparar el correo
+            cuerpo_html = template.replace("{CLIENT_NAME}", cliente_nombre)
             asunto = f"Reporte para {cliente_nombre}"
-            cuerpo_html = f"""
-            <h1>Estimado {cliente_nombre},</h1>
-            <p>Adjunto encontrarás tu reporte.</p>
-            <p>Saludos cordiales,<br/>Tu Empresa</p>
-            """
-
-            # Enviar el correo utilizando EmailSender
-            success, msg = self.email_sender.send_email(cliente_correo, asunto, cuerpo_html, reporte_path)
+            # Llamada al método send_email con los tres campos de destinatarios
+            success, msg = self.email_sender.send_email(
+                to_email=cliente_correo,
+                subject=asunto,
+                html_content=cuerpo_html,
+                attachment_path=reporte_path,
+                cc_emails=cliente_correo_cc,
+                bcc_emails=cliente_correo_bcc
+            )
             if success:
                 enviados_exitosamente.append(cliente_nombre)
             else:
                 errores_envio.append(f"Error al enviar a '{cliente_nombre}': {msg}")
 
-        # Actualizar la interfaz con los resultados
         if enviados_exitosamente:
             self.after(0, lambda: self.update_progress(
-                f"Reportes enviados a: {', '.join(enviados_exitosamente)}", style='Success.TLabel'))
+                f"Reportes enviados a: {', '.join(enviados_exitosamente)}", style='Success.TLabel')
+                       )
 
         if errores_envio:
-            self.after(0, lambda: self.update_progress(
-                "Errores durante el envío de reportes.", style='Error.TLabel'))
+            self.after(0, lambda: self.update_progress("Errores durante el envío de reportes.", style='Error.TLabel'))
             errores_detallados = "\n".join(errores_envio)
             self.after(0, lambda: messagebox.showerror("Errores de Envío", errores_detallados))
         else:
             self.after(0, lambda: messagebox.showinfo("Éxito", "Todos los reportes fueron enviados exitosamente."))
 
         self.after(0, lambda: self.stop_loading_animation())
+
+    def open_reports_in_excel(self):
+        open_reports_in_excel(self)
+
+    def select_all_with_reports_in_all_clients(self):
+        select_all_with_reports_in_all_clients(self)
+

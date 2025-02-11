@@ -7,19 +7,13 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from typing import Tuple
 import logging
-from googleapiclient.discovery import build
 import requests
 from msal import PublicClientApplication
 
 from utils.config_manager import ConfigManager
 
+
 class EmailSender:
-    GOOGLE_SCOPES = [
-        'https://www.googleapis.com/auth/gmail.send',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'openid'
-    ]
     MS_SCOPES = [
         'User.Read',
         'Mail.Send'
@@ -32,14 +26,16 @@ class EmailSender:
         self.msal_app = msal_app
         self.config_manager = ConfigManager()
         self.user_email = self.config_manager.get_email()
-        self.email_provider = self.config_manager.get_email_provider()
-        self.google_creds = self.config_manager.get_google_credentials()
-        logging.info("EmailSender inicializado correctamente.")
+        logging.info("EmailSender inicializado correctamente. (Solo Microsoft)")
 
     def get_microsoft_access_token(self):
+        """
+        Intenta adquirir un token de acceso para Microsoft (Graph) en modo silencioso.
+        Si no está disponible en caché, devuelve None para requerir reautenticación.
+        """
         accounts = self.msal_app.get_accounts()
         if accounts:
-            logging.debug(f"Encontrados accounts en MSAL: {accounts}")
+            logging.debug(f"Encontradas cuentas en MSAL: {accounts}")
             result = self.msal_app.acquire_token_silent(self.MS_SCOPES, account=accounts[0])
             if result and 'access_token' in result:
                 logging.debug("Token adquirido silenciosamente.")
@@ -50,8 +46,9 @@ class EmailSender:
             logging.info("No hay cuentas en MSAL. Requiere autenticación.")
         return None
 
-    def create_email_message(self, to_email: str, subject: str, html_content: str,
-                             attachment_path: str) -> MIMEMultipart:
+    def create_email_message(
+            self, to_email: str, subject: str, html_content: str, attachment_path: str
+    ) -> MIMEMultipart:
         """
         Crea un mensaje de correo electrónico con un archivo adjunto.
         """
@@ -80,42 +77,43 @@ class EmailSender:
 
         return msg
 
-    def send_email(self, to_email: str, subject: str, html_content: str, attachment_path: str) -> Tuple[bool, str]:
+    def send_email(
+            self,
+            to_email: str,
+            subject: str,
+            html_content: str,
+            attachment_path: str,
+            cc_emails: str = "",
+            bcc_emails: str = ""
+    ) -> Tuple[bool, str]:
+        """
+        Envía un correo utilizando Microsoft Graph.
+        Retorna (True, "OK") en caso de éxito, o (False, "Mensaje de Error") en caso de falla.
+        Se aceptan parámetros opcionales cc_emails y bcc_emails (como cadena con correos separados por comas).
+        """
         try:
-            if self.email_provider == 'Google' and self.google_creds:
-                return self._send_email_google(to_email, subject, html_content, attachment_path)
-            elif self.email_provider == 'Microsoft':
-                return self._send_email_microsoft(to_email, subject, html_content, attachment_path)
-            else:
-                raise ValueError("Credenciales OAuth no disponibles o proveedor de correo no soportado.")
+            return self._send_email_microsoft(to_email, subject, html_content, attachment_path, cc_emails, bcc_emails)
         except Exception as e:
             logging.error(f"Error al enviar el correo: {str(e)}")
             return False, f"Error al enviar el correo: {str(e)}"
 
-    def _send_email_google(self, to_email: str, subject: str, html_content: str, attachment_path: str) -> Tuple[bool, str]:
+    def _send_email_microsoft(
+            self,
+            to_email: str,
+            subject: str,
+            html_content: str,
+            attachment_path: str,
+            cc_emails: str = "",
+            bcc_emails: str = ""
+    ) -> Tuple[bool, str]:
         """
-        Envía un correo usando el API de Gmail.
+        Envía un correo usando Microsoft Graph.
+        Se procesan los campos to, cc y bcc de modo que, si contienen múltiples direcciones separadas por comas,
+        se conviertan en listas separadas.
         """
-        try:
-            service = build('gmail', 'v1', credentials=self.google_creds)
-            message = self.create_email_message(to_email, subject, html_content, attachment_path)
-            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-
-            send_message = {
-                'raw': raw_message
-            }
-            service.users().messages().send(userId='me', body=send_message).execute()
-            logging.info(f"Correo enviado exitosamente a {to_email} usando Gmail API.")
-            return (True, "Correo enviado exitosamente.")
-        except Exception as e:
-            logging.error(f"Error al enviar correo con Google: {str(e)}")
-            return (False, f"Error al enviar correo con Google: {str(e)}")
-
-    def _send_email_microsoft(self, to_email: str, subject: str, html_content: str, attachment_path: str) -> Tuple[bool, str]:
         try:
             access_token = self.get_microsoft_access_token()
             if not access_token:
-                # No se encontró un access_token válido en la caché
                 logging.warning("No se encontró un access_token válido para Microsoft. Se requiere reautenticación.")
                 return False, "Se requiere reautenticación con Microsoft."
 
@@ -123,6 +121,14 @@ class EmailSender:
                 'Authorization': f'Bearer {access_token}',
                 'Content-Type': 'application/json'
             }
+
+            # Procesar el campo 'to_email'
+            to_list = [email.strip() for email in to_email.split(',') if email.strip()]
+            # Si no se pudo dividir (por ejemplo, si no hay comas) se usa la lista con el valor original.
+            if not to_list:
+                to_list = [to_email.strip()]
+
+            # Construir la sección toRecipients
             message = {
                 "message": {
                     "subject": subject,
@@ -130,12 +136,22 @@ class EmailSender:
                         "contentType": "HTML",
                         "content": html_content
                     },
-                    "toRecipients": [
-                        {"emailAddress": {"address": to_email}}
-                    ]
+                    "toRecipients": [{"emailAddress": {"address": email}} for email in to_list]
                 },
                 "saveToSentItems": "true"
             }
+
+            # Agregar ccRecipients si se proporcionan
+            if cc_emails:
+                cc_list = [email.strip() for email in cc_emails.split(',') if email.strip()]
+                if cc_list:
+                    message["message"]["ccRecipients"] = [{"emailAddress": {"address": email}} for email in cc_list]
+
+            # Agregar bccRecipients si se proporcionan
+            if bcc_emails:
+                bcc_list = [email.strip() for email in bcc_emails.split(',') if email.strip()]
+                if bcc_list:
+                    message["message"]["bccRecipients"] = [{"emailAddress": {"address": email}} for email in bcc_list]
 
             # Adjuntar archivo si existe
             if os.path.exists(attachment_path):
@@ -153,7 +169,7 @@ class EmailSender:
                 logging.error(f"El archivo adjunto '{attachment_path}' no existe.")
                 raise FileNotFoundError(f"El archivo adjunto '{attachment_path}' no existe.")
 
-            # Usar el punto de acceso de Microsoft Graph para enviar el correo
+            # Enviar el correo a través de Microsoft Graph
             response = requests.post(
                 'https://graph.microsoft.com/v1.0/me/sendMail',
                 headers=headers,
@@ -161,12 +177,14 @@ class EmailSender:
             )
 
             if response.status_code == 202:
-                logging.info(f"Correo enviado exitosamente a {to_email} usando Microsoft Graph.")
+                logging.info(f"Correo enviado exitosamente a {to_list} usando Microsoft Graph.")
                 return True, "Correo enviado exitosamente."
             else:
                 error_msg = f"Error al enviar correo con Microsoft: {response.text}"
                 logging.error(error_msg)
                 return False, error_msg
+
         except Exception as e:
             logging.error(f"Error al enviar correo con Microsoft: {str(e)}")
             return False, f"Error al enviar correo con Microsoft: {str(e)}"
+

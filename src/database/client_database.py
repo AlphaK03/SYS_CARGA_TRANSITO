@@ -1,4 +1,3 @@
-# src/database/client_database.py
 import os
 import sqlite3
 from typing import List, Optional, Tuple
@@ -27,7 +26,6 @@ class ClientDatabase:
             self.connection = sqlite3.connect(self.db_path)
             self.create_tables()
             self.initialize_default_list()
-
         except sqlite3.OperationalError as e:
             raise Exception(f"No se pudo abrir la base de datos: {e}")
 
@@ -37,7 +35,9 @@ class ClientDatabase:
             CREATE TABLE IF NOT EXISTS clientes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT UNIQUE NOT NULL,
-                correo TEXT DEFAULT '(correo sin definir)'
+                correo TEXT DEFAULT '(correo sin definir)',
+                correo_cc TEXT DEFAULT '',
+                correo_bcc TEXT DEFAULT ''
             )
         ''')
         cursor.execute('''
@@ -69,47 +69,53 @@ class ClientDatabase:
 
     # Métodos para manejar clientes y aliases
 
-    def add_client(self, nombre: str, correo: str = '(correo sin definir)', client_id: Optional[int] = None):
+    def add_client(self, nombre: str, correo: str = '(correo sin definir)',
+                   correo_cc: str = '', correo_bcc: str = '', client_id: Optional[int] = None):
         """
         Agrega un nuevo cliente a la base de datos.
-        Si se proporciona client_id, lo utiliza; de lo contrario, auto-incrementa.
+        Si se proporciona client_id, lo utiliza; de lo contrario, se auto-incrementa.
 
         Args:
             nombre (str): Nombre del cliente.
-            correo (str): Correo electrónico del cliente.
+            correo (str): Correo electrónico principal del cliente.
+            correo_cc (str): Correos para CC, separados por comas.
+            correo_bcc (str): Correos para CCO (BCC), separados por comas.
             client_id (Optional[int]): ID del cliente. Si se proporciona, se usa para la inserción.
         """
         cursor = self.connection.cursor()
         if client_id is not None:
             try:
                 cursor.execute('''
-                    INSERT INTO clientes (id, nombre, correo)
-                    VALUES (?, ?, ?)
-                ''', (client_id, nombre, correo))
+                    INSERT INTO clientes (id, nombre, correo, correo_cc, correo_bcc)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (client_id, nombre, correo, correo_cc, correo_bcc))
             except sqlite3.IntegrityError as e:
                 raise Exception(f"No se pudo agregar el cliente con ID {client_id}: {e}")
         else:
             cursor.execute('''
-                INSERT INTO clientes (nombre, correo)
-                VALUES (?, ?)
-            ''', (nombre, correo))
+                INSERT INTO clientes (nombre, correo, correo_cc, correo_bcc)
+                VALUES (?, ?, ?, ?)
+            ''', (nombre, correo, correo_cc, correo_bcc))
         self.connection.commit()
 
-    def update_client_name_and_email(self, client_id: int, nombre: str, correo: str):
+    def update_client_name_and_email(self, client_id: int, nombre: str, correo: str,
+                                       correo_cc: str = '', correo_bcc: str = ''):
         """
-        Actualiza el nombre y el correo de un cliente.
+        Actualiza el nombre, el correo principal, el correo CC y el correo CCO de un cliente.
 
         Args:
             client_id (int): ID del cliente.
             nombre (str): Nuevo nombre del cliente.
-            correo (str): Nuevo correo electrónico del cliente.
+            correo (str): Nuevo correo principal del cliente.
+            correo_cc (str): Nuevo valor para el campo de CC (correos separados por comas).
+            correo_bcc (str): Nuevo valor para el campo de CCO (correos separados por comas).
         """
         cursor = self.connection.cursor()
         cursor.execute('''
             UPDATE clientes
-            SET nombre = ?, correo = ?
+            SET nombre = ?, correo = ?, correo_cc = ?, correo_bcc = ?
             WHERE id = ?
-        ''', (nombre, correo, client_id))
+        ''', (nombre, correo, correo_cc, correo_bcc, client_id))
         self.connection.commit()
 
     def delete_client(self, client_id: int):
@@ -125,7 +131,7 @@ class ClientDatabase:
         cursor.execute('DELETE FROM clientes WHERE id = ?', (client_id,))
         self.connection.commit()
 
-    def get_client_by_id(self, client_id: int) -> Optional[Tuple[int, str, str]]:
+    def get_client_by_id(self, client_id: int) -> Optional[Tuple[int, str, str, str, str]]:
         """
         Obtiene un cliente por su ID.
 
@@ -133,10 +139,10 @@ class ClientDatabase:
             client_id (int): ID del cliente.
 
         Returns:
-            Optional[Tuple[int, str, str]]: Tupla con (id, nombre, correo) o None si no se encuentra.
+            Optional[Tuple[int, str, str, str, str]]: Tupla con (id, nombre, correo, correo_cc, correo_bcc) o None si no se encuentra.
         """
         cursor = self.connection.cursor()
-        cursor.execute('SELECT id, nombre, correo FROM clientes WHERE id = ?', (client_id,))
+        cursor.execute('SELECT id, nombre, correo, correo_cc, correo_bcc FROM clientes WHERE id = ?', (client_id,))
         return cursor.fetchone()
 
     def add_alias(self, client_id: int, alias: str):
@@ -179,15 +185,15 @@ class ClientDatabase:
         cursor.execute('SELECT id, alias FROM aliases WHERE client_id = ?', (client_id,))
         return cursor.fetchall()
 
-    def get_all_clients(self) -> List[Tuple[int, str, str]]:
+    def get_all_clients(self) -> List[Tuple[int, str, str, str, str]]:
         """
         Obtiene todos los clientes de la base de datos.
 
         Returns:
-            List[Tuple[int, str, str]]: Lista de tuplas con (id, nombre, correo).
+            List[Tuple[int, str, str, str, str]]: Lista de tuplas con (id, nombre, correo, correo_cc, correo_bcc).
         """
         cursor = self.connection.cursor()
-        cursor.execute('SELECT id, nombre, correo FROM clientes')
+        cursor.execute('SELECT id, nombre, correo, correo_cc, correo_bcc FROM clientes')
         return cursor.fetchall()
 
     def get_clients_with_email(self) -> List[Tuple[int, str, str]]:
@@ -294,7 +300,7 @@ class ClientDatabase:
         ''', (client_id, list_id))
         self.connection.commit()
 
-    def get_clients_by_list(self, list_id: int) -> List[Tuple[int, str, str]]:
+    def get_clients_by_list(self, list_id: int) -> List[Tuple[int, str, str, str, str]]:
         """
         Obtiene los clientes asociados a una lista.
 
@@ -302,11 +308,11 @@ class ClientDatabase:
             list_id (int): ID de la lista.
 
         Returns:
-            List[Tuple[int, str, str]]: Lista de tuplas con (id, nombre, correo).
+            List[Tuple[int, str, str, str, str]]: Lista de tuplas con (id, nombre, correo, correo_cc, correo_bcc).
         """
         cursor = self.connection.cursor()
         cursor.execute('''
-            SELECT c.id, c.nombre, c.correo
+            SELECT c.id, c.nombre, c.correo, c.correo_cc, c.correo_bcc
             FROM clientes c
             INNER JOIN client_list cl ON c.id = cl.client_id
             WHERE cl.list_id = ?
@@ -329,7 +335,6 @@ class ClientDatabase:
         if not result:
             self.add_list('Predeterminada')
         self.connection.commit()
-
 
     def get_client_lists(self, client_id: int) -> List[int]:
         """
@@ -366,7 +371,6 @@ class ClientDatabase:
         cursor = self.connection.cursor()
         cursor.execute('SELECT 1 FROM listas WHERE id = ?', (list_id,))
         return cursor.fetchone() is not None
-
 
     def get_list_id_by_name(self, list_name: str) -> Optional[int]:
         """

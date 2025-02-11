@@ -2,6 +2,8 @@
 
 import os
 import sys
+
+import requests
 import win32com.client
 import pandas as pd
 from office365.runtime.auth.authentication_context import AuthenticationContext
@@ -11,6 +13,8 @@ from typing import List, Optional
 from openpyxl import load_workbook
 import win32com.client  # Importar para interactuar con Excel
 import time
+from urllib.parse import quote
+
 
 from database.client_database import ClientDatabase
 from utils.config_manager import ConfigManager
@@ -70,7 +74,7 @@ class FileProcessor:
 
         self.site_url = site_url
         self.sharepoint_file_url = sharepoint_file_url
-        self.output_dir = os.path.join('data', 'Clientes_Separados')
+        self.output_dir = os.path.join('data', 'reportes')
         self.db = ClientDatabase()
         self.config_manager = ConfigManager()
         self.ctx = None  # SharePoint context
@@ -128,7 +132,7 @@ class FileProcessor:
         try:
             # Crear una nueva instancia de Excel
             excel_app = win32com.client.DispatchEx("Excel.Application")
-            excel_app.Visible = False  # Mantener Excel no visible
+            excel_app.Visible = True  # Mantener Excel visible para depuración
             excel_app.DisplayAlerts = False
             excel_app.AskToUpdateLinks = False
             excel_app.EnableEvents = False
@@ -203,16 +207,95 @@ class FileProcessor:
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        template_path = get_resource_path('template/plantilla_Excel.xlsx')
+        # Ruta inicial de la plantilla
+        default_template_path = get_resource_path('template/plantilla_Excel.xlsx')
+        template_path = default_template_path
 
         for client_id, client_data in clients_dict.items():
             nombre = client_data['nombre']
             aliases = client_data['aliases']
 
+            # Si el cliente es 'EPA', ajustar el proceso y la plantilla
+            if nombre == 'EPA':
+                try:
+                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='EPA Report', header=3)
+                except ValueError:
+                    raise ValueError("La hoja 'EPA Report' no se encontró en el archivo Excel.")
+
+                # Cambiar a la plantilla específica para EPA
+                template_path = get_resource_path('template/plantilla_EPA.xlsx')
+
+                # Definir el archivo de salida
+                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+
+                # Crear el archivo Excel con formato usando la plantilla específica
+                _save_excel_with_format(df_cliente, template_path, output_file)
+
+                # Restablecer la plantilla a la predeterminada
+                template_path = default_template_path
+                continue
+            if nombre == 'ALPEMUSA':
+                try:
+                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='ALPEMUSA Report', header=3)
+                except ValueError:
+                    raise ValueError("La hoja 'ALPEMUSA Report' no se encontró en el archivo Excel.")
+
+                # Cambiar a la plantilla específica para EPA
+                template_path = get_resource_path('template/plantilla_ALPEMUSA.xlsx')
+
+                # Definir el archivo de salida
+                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+
+                # Crear el archivo Excel con formato usando la plantilla específica
+                _save_excel_with_format(df_cliente, template_path, output_file)
+
+                # Restablecer la plantilla a la predeterminada
+                template_path = default_template_path
+                continue
+
+            if nombre == 'SAN NICOLAS':
+                try:
+                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='San Nicolas Report', header=3)
+                except ValueError:
+                    raise ValueError("La hoja 'San Nicolas Report' no se encontró en el archivo Excel.")
+
+                # Cambiar a la plantilla específica para EPA
+                template_path = get_resource_path('template/plantilla_SAN_NICOLAS.xlsx')
+
+                # Definir el archivo de salida
+                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+
+                # Crear el archivo Excel con formato usando la plantilla específica
+                _save_excel_with_format(df_cliente, template_path, output_file)
+
+                # Restablecer la plantilla a la predeterminada
+                template_path = default_template_path
+                continue
+
+            if nombre == 'PLASTIMEX':
+                try:
+                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='Plastimex Report', header=3)
+                except ValueError:
+                    raise ValueError("La hoja 'Plastimex Report' no se encontró en el archivo Excel.")
+
+                # Cambiar a la plantilla específica para EPA
+                template_path = get_resource_path('template/plantilla_PLASTIMEX.xlsx')
+
+                # Definir el archivo de salida
+                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
+
+                # Crear el archivo Excel con formato usando la plantilla específica
+                _save_excel_with_format(df_cliente, template_path, output_file)
+
+                # Restablecer la plantilla a la predeterminada
+                template_path = default_template_path
+                continue
+
+
+            # Filtrar los datos que coincidan con cualquiera de los aliases
             if not aliases:
                 continue  # Si el cliente no tiene aliases, continuar
 
-            # Filtrar los datos que coincidan con cualquiera de los aliases
             df_cliente = df[df['Consignee'].isin(aliases)]
 
             if df_cliente.empty:
@@ -220,7 +303,7 @@ class FileProcessor:
 
             output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
-            # Crear el archivo Excel con formato
+            # Crear el archivo Excel con formato usando la plantilla general
             _save_excel_with_format(df_cliente, template_path, output_file)
 
         return [client_data['nombre'] for client_id, client_data in clients_dict.items()]
@@ -277,3 +360,37 @@ class FileProcessor:
         except Exception as e:
             print(f"Error al obtener la fecha de actualización: {e}")
             return None
+
+    def download_file_with_token(self, access_token: str) -> str:
+        """
+        Descarga el archivo de SharePoint usando peticiones REST y un token OAuth2 (autenticación moderna).
+        """
+        # 1) Crear carpeta local de destino
+        os.makedirs('data/temp', exist_ok=True)
+
+        # 2) Determinar el nombre de archivo local
+        file_name = os.path.basename(self.sharepoint_file_url)
+        self.local_file_path = os.path.join('data', 'temp', file_name)
+
+        # 3) Escapar la URL para caracteres especiales
+        server_relative_path = quote(self.sharepoint_file_url)
+        endpoint = f"{self.site_url}/_api/web/GetFileByServerRelativeUrl('{server_relative_path}')/$value"
+
+        # 4) Hacer la petición GET con Bearer token
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json;odata=nometadata"
+        }
+        response = requests.get(endpoint, headers=headers, stream=True)
+
+        if response.status_code == 200:
+            # 5) Guardar contenido en local_file_path
+            with open(self.local_file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print(f"Archivo descargado en: {self.local_file_path}")
+            return self.local_file_path
+        else:
+            # Imprimir más información sobre el error
+            print(f"Error al descargar: {response.status_code} - {response.text}")
+            raise Exception(f"Error al descargar (HTTP {response.status_code}): {response.text}")

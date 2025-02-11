@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
 from datetime import datetime
 
+from manager.multi_email_field import MultiEmailField
+
 
 def on_tab_change(self, event):
     notebook = event.widget
@@ -32,9 +34,10 @@ def on_list_select_por_lista(self, event):
     for item in self.tree_clients_por_lista.get_children():
         self.tree_clients_por_lista.delete(item)
 
-    # Obtener los clientes de la lista seleccionada
+    # Obtener los clientes de la lista seleccionada (la tupla ahora tiene 5 elementos)
     clients = self.db.get_clients_by_list(list_id)
     for client in clients:
+        # Insertar todos los campos: (id, nombre, correo, correo_cc, correo_bcc)
         self.tree_clients_por_lista.insert('', 'end', values=client)
 
     # Limpiar el Listbox de aliases
@@ -42,17 +45,26 @@ def on_list_select_por_lista(self, event):
 
 
 def load_all_clients(self):
-    # Limpiar los clientes existentes en el Treeview
+    # Limpiar los clientes existentes
     for item in self.tree_all_clients.get_children():
         self.tree_all_clients.delete(item)
 
     # Obtener todos los clientes
+    # Se espera que self.db.get_all_clients() retorne tuplas con:
+    # (id, nombre, correo, correo_cc, correo_bcc)
     clients = self.db.get_all_clients()
-    for client in clients:
-        self.tree_all_clients.insert('', 'end', values=client)
 
-    # Limpiar el Listbox de aliases
+    for client in clients:
+        client_id, client_name, client_email, client_cc, client_bcc = client
+        # Verificar si existe reporte para este cliente
+        tag = 'has_report' if self.processor and self.processor.get_client_file(client_name) else 'no_report'
+        # Insertar todos los 5 campos en el Treeview
+        self.tree_all_clients.insert('', 'end',
+                                     values=(client_id, client_name, client_email, client_cc, client_bcc),
+                                     tags=(tag,))
+    # Limpiar la lista de aliases
     self.listbox_aliases_all_clients.delete(0, tk.END)
+
 
 
 def add_client_to_existing_list(self):
@@ -187,7 +199,7 @@ def on_list_select(self, event):
 
 
 def load_clients_in_selected_list(self):
-    """Carga los clientes asociados a la lista seleccionada en la tabla."""
+    """Carga los clientes asociados a la lista seleccionada en la tabla (Por Lista)."""
     # Limpiar la tabla de clientes por lista
     for item in self.tree_clients_por_lista.get_children():
         self.tree_clients_por_lista.delete(item)
@@ -196,27 +208,17 @@ def load_clients_in_selected_list(self):
         selected_list_name = self.selected_lista.get()
         if selected_list_name and selected_list_name in self.list_ids:
             list_id = self.list_ids[selected_list_name]
+            # Se espera que get_clients_by_list retorne tuplas de 5 elementos:
+            # (id, nombre, correo, correo_cc, correo_bcc)
             clientes = self.db.get_clients_by_list(list_id)
         else:
             clientes = []
 
-        for count, (client_id, nombre, correo) in enumerate(clientes):
-            if count % 2 == 0:
-                self.tree_clients_por_lista.insert(
-                    '',
-                    tk.END,
-                    iid=client_id,
-                    values=(client_id, nombre, correo),
-                    tags=('evenrow',)
-                )
-            else:
-                self.tree_clients_por_lista.insert(
-                    '',
-                    tk.END,
-                    iid=client_id,
-                    values=(client_id, nombre, correo),
-                    tags=('oddrow',)
-                )
+        for count, client in enumerate(clientes):
+            # client es una tupla con 5 valores.
+            tag = 'evenrow' if count % 2 == 0 else 'oddrow'
+            self.tree_clients_por_lista.insert('', tk.END, iid=client[0],
+                                                values=client, tags=(tag,))
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error al cargar los clientes: {str(e)}")
 
@@ -259,11 +261,14 @@ def add_client(self):
     def guardar_cliente():
         nombre = entrada_nombre.get().strip()
         correo = entrada_correo.get().strip()
+        correo_cc = entrada_cc.get().strip()
+        correo_bcc = entrada_bcc.get().strip()
         if not nombre:
             messagebox.showwarning("Advertencia", "El nombre del cliente no puede estar vacío.")
             return
         try:
-            self.db.add_client(nombre, correo)
+            # Se pasan también correo_cc y correo_bcc
+            self.db.add_client(nombre, correo, correo_cc, correo_bcc)
             client_id = self.db.get_client_id_by_name(nombre)
             if client_id:
                 selected_list_name = self.selected_lista.get()
@@ -278,7 +283,6 @@ def add_client(self):
             elif current_tab == "Todos los Clientes":
                 self.load_all_clients()
             ventana_agregar.destroy()
-            # messagebox.showinfo("Éxito", "Cliente agregado exitosamente.")
         except sqlite3.IntegrityError:
             messagebox.showerror("Error", f"El cliente '{nombre}' ya existe.")
         except Exception as e:
@@ -290,15 +294,14 @@ def add_client(self):
 
     # Ajustar el tamaño inicial de la ventana según el escalado
     initial_width = int(600 * self.scaling_factor)
-    initial_height = int(250 * self.scaling_factor)
+    initial_height = int(300 * self.scaling_factor)  # Se aumenta la altura para los nuevos campos
 
     self.center_window(ventana_agregar, initial_width, initial_height)
 
     # Configurar el grid para una mejor disposición de los widgets
     ventana_agregar.columnconfigure(0, weight=1)
-    ventana_agregar.rowconfigure(0, weight=1)
-    ventana_agregar.rowconfigure(1, weight=1)
-    ventana_agregar.rowconfigure(2, weight=1)
+    for i in range(4):
+        ventana_agregar.rowconfigure(i, weight=1)
 
     # Frame principal dentro de la ventana
     frame_principal = ttk.Frame(ventana_agregar, padding=int(10 * self.scaling_factor))
@@ -306,47 +309,32 @@ def add_client(self):
     frame_principal.columnconfigure(1, weight=1)
 
     # Etiqueta y entrada para el nombre del cliente
-    etiqueta_nombre = ttk.Label(
-        frame_principal,
-        text="Nombre del Cliente:",
-        style='Custom.TLabel',
-        # , int(12 * self.scaling_factor))
-    )
+    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", style='Custom.TLabel')
     etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-
-    entrada_nombre = ttk.Entry(
-        frame_principal,
-        width=int(30 * self.scaling_factor),
-        # , int(10 * self.scaling_factor))
-    )
-    entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
-                        sticky='ew')
+    entrada_nombre = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para el correo electrónico
-    etiqueta_correo = ttk.Label(
-        frame_principal,
-        text="Correo Electrónico:",
-        style='Custom.TLabel',
-        # , int(12 * self.scaling_factor))
-    )
+    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", style='Custom.TLabel')
     etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+    entrada_correo = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
-    entrada_correo = ttk.Entry(
-        frame_principal,
-        width=int(30 * self.scaling_factor),
-        # , int(10 * self.scaling_factor))
-    )
-    entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
-                        sticky='ew')
+    # Etiqueta y entrada para Correo CC
+    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", style='Custom.TLabel')
+    etiqueta_cc.grid(row=2, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+    entrada_cc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_cc.grid(row=2, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
+
+    # Etiqueta y entrada para Correo BCC (CCO)
+    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", style='Custom.TLabel')
+    etiqueta_bcc.grid(row=3, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+    entrada_bcc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_bcc.grid(row=3, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Botón para guardar el cliente
-    boton_guardar = ttk.Button(
-        frame_principal,
-        text="Guardar",
-        command=guardar_cliente,
-        style='GreenSuccess.TButton'
-    )
-    boton_guardar.grid(row=2, column=0, columnspan=2, pady=int(20 * self.scaling_factor),
+    boton_guardar = ttk.Button(frame_principal, text="Guardar", command=guardar_cliente, style='GreenSuccess.TButton')
+    boton_guardar.grid(row=4, column=0, columnspan=2, pady=int(20 * self.scaling_factor),
                        ipadx=int(10 * self.scaling_factor), ipady=int(5 * self.scaling_factor))
 
     # Configurar la ventana como modal
@@ -375,21 +363,31 @@ def edit_client(self):
         messagebox.showwarning("Advertencia", "Por favor, selecciona un cliente de la lista.")
         return
 
+    # Se obtiene el ID del cliente desde el Treeview y se consulta la información completa en la base de datos
     item = selected_item[0]
-    cliente_nombre = tree.item(item, 'values')[1]
-    correo_actual = tree.item(item, 'values')[2]
+    client_id = int(tree.item(item, 'values')[0])
+    client_info = self.db.get_client_by_id(client_id)
+    if not client_info:
+        messagebox.showerror("Error", "No se encontró información del cliente.")
+        return
+    # client_info es (id, nombre, correo, correo_cc, correo_bcc)
+    cliente_nombre = client_info[1]
+    correo_actual = client_info[2]
+    correo_cc_actual = client_info[3]
+    correo_bcc_actual = client_info[4]
 
     def guardar_cambio():
         nuevo_nombre = entrada_nombre.get().strip()
         nuevo_correo = entrada_correo.get().strip()
+        nuevo_cc = entrada_cc.get().strip()
+        nuevo_bcc = entrada_bcc.get().strip()
 
         if not nuevo_nombre:
             messagebox.showwarning("Advertencia", "El nombre del cliente no puede estar vacío.")
             return
 
         try:
-            client_id = int(tree.item(item, 'values')[0])
-            self.db.update_client_name_and_email(client_id, nuevo_nombre, nuevo_correo)
+            self.db.update_client_name_and_email(client_id, nuevo_nombre, nuevo_correo, nuevo_cc, nuevo_bcc)
 
             # Recargar las tablas después de modificar el cliente
             if current_tab == "Por Lista":
@@ -398,7 +396,6 @@ def edit_client(self):
                 self.load_all_clients()
 
             ventana_editar.destroy()
-            # messagebox.showinfo("Éxito", "Cliente actualizado exitosamente.")
         except sqlite3.IntegrityError:
             messagebox.showerror("Error", f"El cliente '{nuevo_nombre}' ya existe.")
         except Exception as e:
@@ -410,17 +407,14 @@ def edit_client(self):
 
     # Ajustar el tamaño inicial de la ventana según el escalado
     initial_width = int(600 * self.scaling_factor)
-    initial_height = int(250 * self.scaling_factor)
+    initial_height = int(350 * self.scaling_factor)  # Se aumenta la altura para incluir CC y BCC
 
     self.center_window(ventana_editar, initial_width, initial_height)
 
-    # Configuración del grid de la ventana
+    # Configuración del grid de la ventana (5 filas: para nombre, correo, CC, BCC y el botón)
+    for i in range(5):
+        ventana_editar.rowconfigure(i, weight=1)
     ventana_editar.columnconfigure(0, weight=1)
-    ventana_editar.rowconfigure(0, weight=1)
-    ventana_editar.rowconfigure(1, weight=1)
-    ventana_editar.rowconfigure(2, weight=1)
-    ventana_editar.rowconfigure(3, weight=1)
-    ventana_editar.rowconfigure(4, weight=1)
 
     # Frame principal dentro de la ventana de edición
     frame_principal = ttk.Frame(ventana_editar, padding=int(10 * self.scaling_factor))
@@ -428,49 +422,36 @@ def edit_client(self):
     frame_principal.columnconfigure(1, weight=1)
 
     # Etiqueta y entrada para el nombre del cliente
-    etiqueta_nombre = ttk.Label(
-        frame_principal,
-        text="Nombre del Cliente:",
-        style='Custom.TLabel',
-        # , int(12 * self.scaling_factor))
-    )
+    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", style='Custom.TLabel')
     etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-
-    entrada_nombre = ttk.Entry(
-        frame_principal,
-        width=int(30 * self.scaling_factor),
-        # , int(10 * self.scaling_factor))
-    )
+    entrada_nombre = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
     entrada_nombre.insert(0, cliente_nombre)
-    entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
-                        sticky='ew')
+    entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para el correo electrónico
-    etiqueta_correo = ttk.Label(
-        frame_principal,
-        text="Correo Electrónico:",
-        style='Custom.TLabel',
-        # , int(12 * self.scaling_factor))
-    )
+    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", style='Custom.TLabel')
     etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-
-    entrada_correo = ttk.Entry(
-        frame_principal,
-        width=int(30 * self.scaling_factor),
-        # , int(10 * self.scaling_factor))
-    )
+    entrada_correo = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
     entrada_correo.insert(0, correo_actual)
-    entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor),
-                        sticky='ew')
+    entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
+
+    # Etiqueta y entrada para Correo CC
+    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", style='Custom.TLabel')
+    etiqueta_cc.grid(row=2, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+    entrada_cc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_cc.insert(0, correo_cc_actual)
+    entrada_cc.grid(row=2, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
+
+    # Etiqueta y entrada para Correo BCC
+    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", style='Custom.TLabel')
+    etiqueta_bcc.grid(row=3, column=0, pady=int(5 * self.scaling_factor), sticky='w')
+    entrada_bcc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_bcc.insert(0, correo_bcc_actual)
+    entrada_bcc.grid(row=3, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Botón para guardar los cambios
-    boton_guardar = ttk.Button(
-        frame_principal,
-        text="Guardar",
-        command=guardar_cambio,
-        style='GreenSuccess.TButton'
-    )
-    boton_guardar.grid(row=2, column=0, columnspan=2, pady=int(15 * self.scaling_factor),
+    boton_guardar = ttk.Button(frame_principal, text="Guardar", command=guardar_cambio, style='GreenSuccess.TButton')
+    boton_guardar.grid(row=4, column=0, columnspan=2, pady=int(15 * self.scaling_factor),
                        ipadx=int(10 * self.scaling_factor), ipady=int(5 * self.scaling_factor), sticky='ew')
 
     # Configurar la ventana como modal
@@ -856,33 +837,43 @@ def export_clients(self):
     # Selecciona la ruta de exportación
     file_path = fd.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
     if not file_path:
-        return  # Si no selecciona un archivo, se cancela la exportación
+        return  # Si no se selecciona un archivo, se cancela la exportación
 
     # Prepara la estructura de datos
     export_data = {"listas": []}
 
     # Obtén todas las listas con sus clientes asignados
-    listas = self.db.get_all_lists()
+    listas = self.db.get_all_lists()  # Se espera una lista de tuplas (id, nombre)
     for list_id, list_name in listas:
+        # Se espera que get_clients_by_list retorne tuplas con:
+        # (id, nombre, correo, correo_cc, correo_bcc)
         clientes = self.db.get_clients_by_list(list_id)
         lista_data = {
             "id": list_id,
             "nombre": list_name,
             "clientes": []
         }
-        for client_id, client_name, client_email in clientes:
+        for client in clientes:
+            client_id, client_name, client_email, client_cc, client_bcc = client
             aliases = self.db.get_aliases_for_client(client_id)
             lista_data["clientes"].append({
                 "id": client_id,
                 "nombre": client_name,
                 "correo": client_email,
+                "correo_cc": client_cc,
+                "correo_bcc": client_bcc,
                 "aliases": [alias for _, alias in aliases]
             })
         export_data["listas"].append(lista_data)
 
     # Obtén los clientes sin lista
-    all_clients = self.db.get_all_clients()  # Todos los clientes
-    clients_with_lists = set(client_id for _, _, clients in export_data["listas"] for client_id in clients)
+    all_clients = self.db.get_all_clients()  # Se espera que retorne tuplas (id, nombre, correo, correo_cc, correo_bcc)
+    # Extraer los IDs de clientes que ya están asignados a alguna lista
+    clients_with_lists = set()
+    for lista in export_data["listas"]:
+        for client in lista["clientes"]:
+            clients_with_lists.add(client["id"])
+
     unassigned_clients = [client for client in all_clients if client[0] not in clients_with_lists]
 
     if unassigned_clients:
@@ -891,12 +882,15 @@ def export_clients(self):
             "nombre": "Sin asignar",
             "clientes": []
         }
-        for client_id, client_name, client_email in unassigned_clients:
+        for client in unassigned_clients:
+            client_id, client_name, client_email, client_cc, client_bcc = client
             aliases = self.db.get_aliases_for_client(client_id)
             lista_sin_asignar["clientes"].append({
                 "id": client_id,
                 "nombre": client_name,
                 "correo": client_email,
+                "correo_cc": client_cc,
+                "correo_bcc": client_bcc,
                 "aliases": [alias for _, alias in aliases]
             })
         export_data["listas"].append(lista_sin_asignar)
@@ -908,6 +902,7 @@ def export_clients(self):
         messagebox.showinfo("Exportación completa", f"Los datos se han exportado a {file_path}")
     except Exception as e:
         messagebox.showerror("Error de exportación", f"No se pudo exportar: {e}")
+
 
 def import_clients(self):
     # Abrir el diálogo de selección de archivo
@@ -940,11 +935,14 @@ def import_clients(self):
         for cliente in lista.get("clientes", []):
             client_name = cliente.get("nombre")
             client_email = cliente.get("correo")
+            # Recuperar los nuevos campos; si no existen, se asigna cadena vacía
+            client_cc = cliente.get("correo_cc", "")
+            client_bcc = cliente.get("correo_bcc", "")
             aliases = cliente.get("aliases", [])
 
             # Agregar el cliente si no existe
             if not self.db.client_exists_by_name(client_name):
-                self.db.add_client(client_name, client_email)
+                self.db.add_client(client_name, client_email, client_cc, client_bcc)
             client_id = self.db.get_client_id_by_name(client_name)
 
             # Agregar alias al cliente si no existen
@@ -969,6 +967,7 @@ def import_clients(self):
         list_id = self.db.get_list_id_by_name("Sin asignar")
         self.db.delete_list(list_id)
         print("La lista 'Sin asignar' fue eliminada después de la importación.")
+
 
 def open_client_manager(self):
     # Obtener la resolución de pantalla y calcular el factor de escala
@@ -1000,7 +999,7 @@ def open_client_manager(self):
 
     # Pestaña 1: Por Lista
     tab_por_lista = ttk.Frame(notebook, padding=int(10 * self.scaling_factor))
-    notebook.add(tab_por_lista, text="Por Lista")
+    #notebook.add(tab_por_lista, text="Por Lista")
     tab_por_lista.columnconfigure(0, weight=1)
     tab_por_lista.rowconfigure(0, weight=1)
 
@@ -1068,53 +1067,53 @@ def open_client_manager(self):
     self.context_menu.add_separator()  # Agregar una línea separadora para mejor organización
     self.context_menu.add_command(label="Eliminar Cliente(s)", command=self.delete_client_from_context_menu)
 
-
-    # Frame para la tabla de clientes por lista
+    # Frame para la tabla de clientes por lista (Pestaña "Por Lista")
     frame_clientes = ttk.Frame(tab_por_lista, padding=int(10 * self.scaling_factor))
     frame_clientes.grid(row=1, column=0, padx=int(10 * self.scaling_factor),
                         pady=int(10 * self.scaling_factor), sticky='nsew')
     frame_clientes.columnconfigure(0, weight=1)
     frame_clientes.rowconfigure(0, weight=1)
 
-    # Tabla para mostrar los clientes por lista
-    columns = ('ID', 'Nombre', 'Correo')
+    # Definir las columnas incluyendo "Correo CC" y "Correo BCC"
+    columns_por_lista = ('ID', 'Nombre', 'Correo', 'Correo CC', 'Correo BCC')
     self.tree_clients_por_lista = ttk.Treeview(
         frame_clientes,
-        columns=columns,
+        columns=columns_por_lista,
         show='headings',
         selectmode='extended',  # Permite selección múltiple
         height=10
     )
 
+    # Configurar etiquetas (tags) para filas (opcional)
+    self.tree_clients_por_lista.tag_configure('has_report', background='#ccffcc')
+    self.tree_clients_por_lista.tag_configure('no_report', background='#ffcccc')
+
+    # Configurar los encabezados y las columnas
     self.tree_clients_por_lista.heading('ID', text='ID')
     self.tree_clients_por_lista.heading('Nombre', text='Nombre')
     self.tree_clients_por_lista.heading('Correo', text='Correo')
+    self.tree_clients_por_lista.heading('Correo CC', text='Correo CC')
+    self.tree_clients_por_lista.heading('Correo BCC', text='Correo BCC')
+
     self.tree_clients_por_lista.column('ID', width=int(50 * self.scaling_factor), anchor='center')
     self.tree_clients_por_lista.column('Nombre', width=int(200 * self.scaling_factor), anchor='w')
     self.tree_clients_por_lista.column('Correo', width=int(250 * self.scaling_factor), anchor='w')
+    self.tree_clients_por_lista.column('Correo CC', width=int(200 * self.scaling_factor), anchor='w')
+    self.tree_clients_por_lista.column('Correo BCC', width=int(200 * self.scaling_factor), anchor='w')
+
     self.tree_clients_por_lista.grid(row=0, column=0, sticky='nsew')
 
-    # Vincular evento para la selección de cliente en "Por Lista"
+    # Vincular eventos para la selección y el clic derecho
     self.tree_clients_por_lista.bind('<<TreeviewSelect>>', self.on_client_select)
-
-
-    # Vincular evento para el clic derecho en "Por Lista"
     self.tree_clients_por_lista.bind("<Button-3>", self.show_context_menu)
 
-    # Scrollbars para la tabla de clientes por lista
-    scrollbar_vertical = ttk.Scrollbar(
-        frame_clientes,
-        orient=tk.VERTICAL,
-        command=self.tree_clients_por_lista.yview
-    )
+    # Scrollbars para el Treeview
+    scrollbar_vertical = ttk.Scrollbar(frame_clientes, orient=tk.VERTICAL, command=self.tree_clients_por_lista.yview)
     scrollbar_vertical.grid(row=0, column=1, sticky='ns')
     self.tree_clients_por_lista.configure(yscrollcommand=scrollbar_vertical.set)
 
-    scrollbar_horizontal = ttk.Scrollbar(
-        frame_clientes,
-        orient=tk.HORIZONTAL,
-        command=self.tree_clients_por_lista.xview
-    )
+    scrollbar_horizontal = ttk.Scrollbar(frame_clientes, orient=tk.HORIZONTAL,
+                                         command=self.tree_clients_por_lista.xview)
     scrollbar_horizontal.grid(row=1, column=0, sticky='ew')
     self.tree_clients_por_lista.configure(xscrollcommand=scrollbar_horizontal.set)
 
@@ -1122,7 +1121,7 @@ def open_client_manager(self):
     frame_botones_clientes = ttk.Frame(frame_clientes, padding=int(10 * self.scaling_factor))
     frame_botones_clientes.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                                 pady=int(5 * self.scaling_factor), sticky='ew')
-    frame_botones_clientes.columnconfigure((0, 1, 2, 3, 4), weight=1)
+    frame_botones_clientes.columnconfigure((0, 1, 2, 3), weight=1)
 
     # Vincular Ctrl + Z a la acción de deshacer
     self.client_manager.bind_all('<Control-z>', self.undo_action)
@@ -1145,14 +1144,6 @@ def open_client_manager(self):
     boton_modificar_cliente.grid(row=0, column=1, padx=int(5 * self.scaling_factor),
                                  pady=int(5 * self.scaling_factor), sticky='ew')
 
-    boton_borrar_cliente = ttk.Button(
-        frame_botones_clientes,
-        text="Borrar Cliente",
-        command=self.delete_client,
-        style='RedColor.TButton'
-    )
-    boton_borrar_cliente.grid(row=0, column=2, padx=int(5 * self.scaling_factor),
-                              pady=int(5 * self.scaling_factor), sticky='ew')
 
     # Nuevo botón para agregar a una lista existente
     boton_anadir_a_lista_all = ttk.Button(
@@ -1161,7 +1152,7 @@ def open_client_manager(self):
         command=self.add_client_to_existing_list,
         style='BlueZodiac.TButton'
     )
-    boton_anadir_a_lista_all.grid(row=0, column=3, padx=int(5 * self.scaling_factor),
+    boton_anadir_a_lista_all.grid(row=0, column=2, padx=int(5 * self.scaling_factor),
                                   pady=int(5 * self.scaling_factor), sticky='ew')
 
     # Nuevo botón para eliminar de una lista
@@ -1171,7 +1162,7 @@ def open_client_manager(self):
         command=self.remove_client_from_selected_list,
         style='RedColor.TButton'
     )
-    boton_eliminar_de_lista.grid(row=0, column=4, padx=int(5 * self.scaling_factor),
+    boton_eliminar_de_lista.grid(row=0, column=3, padx=int(5 * self.scaling_factor),
                                  pady=int(5 * self.scaling_factor), sticky='ew')
 
     # Frame para gestión de aliases en "Por Lista"
@@ -1235,61 +1226,64 @@ def open_client_manager(self):
     # Pestaña 2: "Todos los Clientes"
     tab_todos_clientes = ttk.Frame(notebook, padding=int(10 * self.scaling_factor))
     notebook.add(tab_todos_clientes, text="Todos los Clientes")
+    notebook.add(tab_por_lista, text="Por Lista")
+
     tab_todos_clientes.columnconfigure(0, weight=1)
     tab_todos_clientes.rowconfigure(0, weight=1)
 
-    # Frame para la lista de todos los clientes
+    # Frame para la lista de todos los clientes en "Todos los Clientes"
     frame_all_clients = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
     frame_all_clients.grid(row=0, column=0, padx=int(10 * self.scaling_factor),
                            pady=int(10 * self.scaling_factor), sticky='nsew')
     frame_all_clients.columnconfigure(0, weight=1)
     frame_all_clients.rowconfigure(0, weight=1)
 
-    # Tabla para mostrar todos los clientes
-    columns_all = ('ID', 'Nombre', 'Correo')
+    # Actualizamos la definición de columnas para mostrar los nuevos campos CC y BCC
+    columns_all = ('ID', 'Nombre', 'Correo', 'Correo CC', 'Correo BCC')
     self.tree_all_clients = ttk.Treeview(
         frame_all_clients,
         columns=columns_all,
         show='headings',
         selectmode='extended',
-        height=10  # Establece una altura fija para la tabla en número de filas visibles
+        height=10  # Número de filas visibles
     )
+
+    # Configurar los encabezados y las columnas
     self.tree_all_clients.heading('ID', text='ID')
     self.tree_all_clients.heading('Nombre', text='Nombre')
     self.tree_all_clients.heading('Correo', text='Correo')
+    self.tree_all_clients.heading('Correo CC', text='Correo CC')
+    self.tree_all_clients.heading('Correo BCC', text='Correo BCC')
     self.tree_all_clients.column('ID', width=int(50 * self.scaling_factor), anchor='center')
     self.tree_all_clients.column('Nombre', width=int(200 * self.scaling_factor), anchor='w')
     self.tree_all_clients.column('Correo', width=int(250 * self.scaling_factor), anchor='w')
+    self.tree_all_clients.column('Correo CC', width=int(200 * self.scaling_factor), anchor='w')
+    self.tree_all_clients.column('Correo BCC', width=int(200 * self.scaling_factor), anchor='w')
+
     self.tree_all_clients.grid(row=0, column=0, sticky='nsew')
 
-    # Vincular evento para la selección de cliente en "Todos los Clientes"
-    self.tree_all_clients.bind('<<TreeviewSelect>>', self.on_all_client_select)
+    self.tree_all_clients.tag_configure('has_report', background='#ccffcc')
+    self.tree_all_clients.tag_configure('no_report', background='#ffcccc')
 
-    # Vincular evento para el clic derecho en "Todos los Clientes"
+    # Vincular eventos para la selección y clic derecho en "Todos los Clientes"
+    self.tree_all_clients.bind('<<TreeviewSelect>>', self.on_all_client_select)
     self.tree_all_clients.bind("<Button-3>", self.show_context_menu)
 
-    # Scrollbars para la tabla de todos los clientes
-    scrollbar_vertical_all = ttk.Scrollbar(
-        frame_all_clients,
-        orient=tk.VERTICAL,
-        command=self.tree_all_clients.yview
-    )
+    # Scrollbars para la tabla de "Todos los Clientes"
+    scrollbar_vertical_all = ttk.Scrollbar(frame_all_clients, orient=tk.VERTICAL, command=self.tree_all_clients.yview)
     scrollbar_vertical_all.grid(row=0, column=1, sticky='ns')
     self.tree_all_clients.configure(yscrollcommand=scrollbar_vertical_all.set)
 
-    scrollbar_horizontal_all = ttk.Scrollbar(
-        frame_all_clients,
-        orient=tk.HORIZONTAL,
-        command=self.tree_all_clients.xview
-    )
+    scrollbar_horizontal_all = ttk.Scrollbar(frame_all_clients, orient=tk.HORIZONTAL,
+                                             command=self.tree_all_clients.xview)
     scrollbar_horizontal_all.grid(row=1, column=0, sticky='ew')
     self.tree_all_clients.configure(xscrollcommand=scrollbar_horizontal_all.set)
 
-    # Panel de botones para gestión de todos los clientes
+    # Panel de botones para gestión de todos los clientes (se mantiene similar, sin cambios en este punto)
     frame_botones_all_clients = ttk.Frame(frame_all_clients, padding=int(10 * self.scaling_factor))
     frame_botones_all_clients.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                                    pady=int(5 * self.scaling_factor), sticky='ew')
-    frame_botones_all_clients.columnconfigure((0, 1, 2, 3), weight=1)
+    frame_botones_all_clients.columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
     boton_anadir_cliente_all = ttk.Button(
         frame_botones_all_clients,
@@ -1318,7 +1312,6 @@ def open_client_manager(self):
     boton_borrar_cliente_all.grid(row=0, column=2, padx=int(5 * self.scaling_factor),
                                   pady=int(5 * self.scaling_factor), sticky='ew')
 
-    # Nuevo botón para agregar a una lista existente
     boton_anadir_a_lista_all = ttk.Button(
         frame_botones_all_clients,
         text="Añadir a Lista",
@@ -1327,6 +1320,24 @@ def open_client_manager(self):
     )
     boton_anadir_a_lista_all.grid(row=0, column=3, padx=int(5 * self.scaling_factor),
                                   pady=int(5 * self.scaling_factor), sticky='ew')
+
+    boton_enviar_reportes_all = ttk.Button(
+        frame_botones_all_clients,
+        text="Enviar Reportes",
+        command=self.send_reports_to_selected_clients,
+        style='EmeraldGreen.TButton'
+    )
+    boton_enviar_reportes_all.grid(row=0, column=4, padx=int(5 * self.scaling_factor),
+                                   pady=int(5 * self.scaling_factor), sticky='ew')
+
+    boton_seleccionar_con_reporte = ttk.Button(
+        frame_botones_all_clients,
+        text="Seleccionar con Reporte",
+        command=self.select_all_with_reports_in_all_clients,
+        style='Warning.TButton'
+    )
+    boton_seleccionar_con_reporte.grid(row=0, column=5, padx=int(5 * self.scaling_factor),
+                                       pady=int(5 * self.scaling_factor), sticky='ew')
 
     # Frame para gestión de aliases en "Todos los Clientes"
     frame_aliases_all = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
@@ -1480,6 +1491,21 @@ def show_context_menu(self, event):
         context_menu.add_separator()  # Agregar una línea separadora para mejor organización
         context_menu.add_command(label="Eliminar Cliente(s)", command=self.delete_client_from_context_menu)
 
+        # -- AQUI VIENE LO NUEVO --
+        # Verificar si al menos uno de los items seleccionados tiene el tag 'has_report'.
+        selected_items = widget.selection()
+        has_report_any = False
+        for sel in selected_items:
+            tags = widget.item(sel, 'tags')
+            if 'has_report' in tags:
+                has_report_any = True
+                break
+
+        if has_report_any:
+            context_menu.add_separator()
+            context_menu.add_command(label="Abrir Reporte en Excel", command=self.open_reports_in_excel)
+        # -- FIN DE LO NUEVO --
+
         # Mostrar el menú
         context_menu.tk_popup(event.x_root, event.y_root)
     # Evitar que el menú contextual permanezca en la pantalla
@@ -1610,6 +1636,8 @@ def edit_alias_inline(self, event):
         self.entry_alias.bind("<FocusOut>", guardar_alias)
         self.entry_alias.bind("<Escape>", cancelar_edicion)
 
+
+
 def undo_action(self, event=None):
     """
     Deshace la última acción realizada.
@@ -1629,7 +1657,6 @@ def undo_action(self, event=None):
             self.db.connection.execute('BEGIN')  # Iniciar transacción
 
             for client in deleted_clients:
-                # Asegurarse de que 'correo' es una cadena de texto
                 correo = client['correo']
                 if isinstance(correo, tuple):
                     correo = correo[0]  # Ajusta el índice según la estructura del tuple
@@ -1644,7 +1671,7 @@ def undo_action(self, event=None):
                 for alias in client['aliases']:
                     alias_str = alias[1]
                     if isinstance(alias_str, tuple):
-                        alias_str = alias_str[0]  # Ajusta el índice según la estructura del tuple
+                        alias_str = alias_str[0]
                     self.db.add_alias(client_id=client['id'], alias=alias_str)
 
                 if list_id:
@@ -1665,12 +1692,14 @@ def undo_action(self, event=None):
         messagebox.showwarning("Deshacer", "La acción no se puede deshacer.")
 
 
-import threading  # Asegúrate de tener importado threading al inicio del archivo
+import threading
 
 
 def send_reports_to_selected_clients(self):
     """
     Envía reportes por correo electrónico a los clientes seleccionados.
+    Se utilizarán los campos de correo principal, así como los de CC y BCC (si están disponibles).
+    Las direcciones en CC y BCC deben estar separadas por comas.
     """
     # Determinar la pestaña activa
     notebook = self.client_manager.nametowidget("!notebook")
@@ -1694,34 +1723,30 @@ def send_reports_to_selected_clients(self):
         # Intentar obtener la fecha de última actualización
         last_update_date = self.processor.get_last_update_date()
     except Exception as e:
-        # Si hay una excepción (archivo no descargado), mostrar mensaje y preguntar al usuario si desea generar reportes
+        # Si hay una excepción (archivo no descargado), preguntar al usuario si desea generar reportes
         respuesta_generar = messagebox.askyesno("Archivo no disponible",
                                                 "El archivo de actualización no ha sido descargado.\n"
                                                 "¿Desea generar los reportes antes de continuar?")
         if respuesta_generar:
             self.processor.run_macro()
             self.processor.process_file()
-
             try:
-                last_update_date = self.processor.get_last_update_date()  # Intenta obtener la fecha de nuevo
+                last_update_date = self.processor.get_last_update_date()  # Intentar obtener la fecha nuevamente
             except Exception:
                 messagebox.showerror("Error", "No se pudo generar una fecha de actualización. Inténtalo de nuevo.")
                 return
         else:
             return  # El usuario eligió no continuar sin la fecha de actualización
 
-    # Confirmar acción con el usuario según la disponibilidad de la fecha de actualización
     if last_update_date:
         try:
-            # Intentar convertir last_update_date a un objeto datetime
+            # Intentar convertir last_update_date a un objeto datetime.
+            # Ajusta el formato si es necesario (por ejemplo, si incluye microsegundos se usaría "%Y-%m-%d %H:%M:%S.%f")
             last_update_date_obj = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S")
-            # Formatear la fecha sin segundos
             formatted_update_date = last_update_date_obj.strftime("%Y-%m-%d %H:%M")
         except ValueError:
-            # Si last_update_date no tiene el formato esperado, dejarlo como está
             formatted_update_date = last_update_date
 
-        # Generar el mensaje de confirmación con la fecha
         if len(selected_items) == 1:
             cliente_nombre = tree.item(selected_items[0], 'values')[1]
             mensaje = (f"¿Estás seguro de enviar el reporte al cliente '{cliente_nombre}'?\n"
@@ -1730,13 +1755,85 @@ def send_reports_to_selected_clients(self):
             mensaje = (f"¿Estás seguro de enviar reportes a los {len(selected_items)} clientes seleccionados?\n"
                        f"Última actualización de reportes: {formatted_update_date}")
     else:
-        # Si no hay fecha de última actualización
         mensaje = "No se encontró una fecha de última actualización. ¿Deseas generar los reportes?"
 
-    # Mostrar mensaje de confirmación final de envío
     respuesta_envio = messagebox.askyesno("Confirmar Envío", mensaje)
     if not respuesta_envio:
         return
 
-    # Iniciar el proceso de envío en un hilo separado
+    # Iniciar el proceso de envío en un hilo separado.
+    # La función process_sending_reports ha sido ajustada para extraer los campos:
+    # (correo, correo_cc, correo_bcc) de cada cliente (se espera que el Treeview de "Todos los Clientes"
+    # contenga 5 columnas: ID, Nombre, Correo, Correo CC y Correo BCC).
     threading.Thread(target=self.process_sending_reports, args=(selected_items, tree), daemon=True).start()
+
+def open_reports_in_excel(self):
+    """
+    Abre el archivo de reporte XLSX en Excel para los clientes seleccionados
+    que tengan un archivo disponible (tag = 'has_report').
+    """
+    import os  # Para utilizar os.startfile en Windows
+
+    # Determinar la pestaña activa (Por Lista o Todos los Clientes)
+    notebook = self.client_manager.nametowidget("!notebook")
+    current_tab = notebook.tab(notebook.select(), "text")
+
+    if current_tab == "Por Lista":
+        tree = self.tree_clients_por_lista
+    elif current_tab == "Todos los Clientes":
+        tree = self.tree_all_clients
+    else:
+        messagebox.showwarning("Advertencia", "No se pudo determinar la pestaña activa.")
+        return
+
+    selected_items = tree.selection()
+    if not selected_items:
+        messagebox.showwarning("Advertencia", "Por favor, selecciona al menos un cliente.")
+        return
+
+    # Intentar abrir cada reporte seleccionado
+    for item in selected_items:
+        values = tree.item(item, 'values')
+        tags = tree.item(item, 'tags')
+
+        # Solo abrimos si el cliente tiene el tag 'has_report'
+        if 'has_report' in tags:
+            client_name = values[1]  # Asumiendo que en la columna 1 (Nombre) se encuentra el nombre del cliente
+            file_path = self.processor.get_client_file(client_name)
+            if file_path:
+                try:
+                    # En Windows, os.startfile abre el archivo con la aplicación predeterminada (Excel).
+                    # En otros SO (Linux, Mac) puedes usar subprocess con 'xdg-open' o 'open', respectivamente.
+                    os.startfile(file_path)
+                except Exception as e:
+                    messagebox.showerror(
+                        "Error",
+                        f"No se pudo abrir el archivo para '{client_name}'.\nRuta: {file_path}\nError: {e}"
+                    )
+            else:
+                messagebox.showinfo(
+                    "Reporte no encontrado",
+                    f"El cliente '{client_name}' no tiene un archivo de reporte disponible."
+                )
+        else:
+            # Si no tiene el tag 'has_report', no hacemos nada con este cliente.
+            pass
+
+def select_all_with_reports_in_all_clients(self):
+    """
+    Selecciona todos los clientes que tengan el tag 'has_report'
+    en la pestaña 'Todos los Clientes'.
+    """
+    tree = self.tree_all_clients
+
+    # Limpiar cualquier selección previa
+    tree.selection_clear()
+
+    # Iterar todos los ítems (clientes) en la tabla
+    for item_id in tree.get_children():
+        # Obtener las etiquetas (tags) de cada ítem
+        tags = tree.item(item_id, 'tags')
+        # Verificar si 'has_report' está presente
+        if 'has_report' in tags:
+            # Agregar este ítem a la selección
+            tree.selection_add(item_id)
