@@ -1,13 +1,11 @@
 # src/gui/app.py
 import json
 import sqlite3
+import threading
 import ttkbootstrap as ttk
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, filedialog
+from tkinter import messagebox, filedialog
 from datetime import datetime
-
-from manager.multi_email_field import MultiEmailField
-
 
 def on_tab_change(self, event):
     notebook = event.widget
@@ -19,7 +17,6 @@ def on_tab_change(self, event):
             self.on_list_select_por_lista(None)
     elif selected_tab == "Todos los Clientes":
         self.load_all_clients()
-
 
 def on_list_select_por_lista(self, event):
     selected_list_name = self.selected_lista.get()
@@ -43,7 +40,6 @@ def on_list_select_por_lista(self, event):
     # Limpiar el Listbox de aliases
     self.listbox_aliases_por_lista.delete(0, tk.END)
 
-
 def load_all_clients(self):
     # Limpiar los clientes existentes
     for item in self.tree_all_clients.get_children():
@@ -64,8 +60,6 @@ def load_all_clients(self):
                                      tags=(tag,))
     # Limpiar la lista de aliases
     self.listbox_aliases_all_clients.delete(0, tk.END)
-
-
 
 def add_client_to_existing_list(self):
     # Determinar la pestaña activa
@@ -187,7 +181,6 @@ def add_client_to_existing_list(self):
     ventana_asignar.grab_set()
     self.client_manager.wait_window(ventana_asignar)
 
-
 def on_list_select(self, event):
     """Evento llamado al seleccionar una lista. Muestra y carga los detalles."""
     selected_list_name = self.selected_lista.get()
@@ -196,7 +189,6 @@ def on_list_select(self, event):
         self.load_clients_in_selected_list()
     else:
         self.frame_details.grid_remove()  # Ocultar el frame_details si no hay selección
-
 
 def load_clients_in_selected_list(self):
     """Carga los clientes asociados a la lista seleccionada en la tabla (Por Lista)."""
@@ -225,7 +217,6 @@ def load_clients_in_selected_list(self):
     # Limpiar la lista de aliases por lista
     self.listbox_aliases_por_lista.delete(0, tk.END)
 
-
 def on_client_select(self, event):
     # Determinar la pestaña activa
     notebook = self.client_manager.nametowidget("!notebook")
@@ -252,10 +243,8 @@ def on_client_select(self, event):
         for alias_id, alias in aliases:
             listbox.insert(tk.END, f"{alias_id}:{alias}")
 
-
 def on_all_client_select(self, event):
     self.on_client_select(event)
-
 
 def add_client(self):
     def guardar_cliente():
@@ -293,8 +282,8 @@ def add_client(self):
     ventana_agregar.title("Agregar Cliente")
 
     # Ajustar el tamaño inicial de la ventana según el escalado
-    initial_width = int(600 * self.scaling_factor)
-    initial_height = int(300 * self.scaling_factor)  # Se aumenta la altura para los nuevos campos
+    initial_width = int(650 * self.scaling_factor)  # Ajustado para mayor legibilidad
+    initial_height = int(350 * self.scaling_factor)  # Más espacio para los campos
 
     self.center_window(ventana_agregar, initial_width, initial_height)
 
@@ -303,33 +292,37 @@ def add_client(self):
     for i in range(4):
         ventana_agregar.rowconfigure(i, weight=1)
 
+    # Definir fuente para los labels y entradas
+    font_labels = ("Helvetica", 14, "bold")  # Etiquetas en negrita
+    font_entries = ("Helvetica", 14)  # Entradas de texto
+
     # Frame principal dentro de la ventana
     frame_principal = ttk.Frame(ventana_agregar, padding=int(10 * self.scaling_factor))
     frame_principal.grid(row=0, column=0, sticky='nsew')
     frame_principal.columnconfigure(1, weight=1)
 
     # Etiqueta y entrada para el nombre del cliente
-    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", style='Custom.TLabel')
+    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", font=font_labels)
     etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_nombre = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_nombre = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para el correo electrónico
-    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", style='Custom.TLabel')
+    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", font=font_labels)
     etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_correo = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_correo = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para Correo CC
-    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", style='Custom.TLabel')
+    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", font=font_labels)
     etiqueta_cc.grid(row=2, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_cc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_cc = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_cc.grid(row=2, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para Correo BCC (CCO)
-    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", style='Custom.TLabel')
+    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", font=font_labels)
     etiqueta_bcc.grid(row=3, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_bcc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_bcc = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_bcc.grid(row=3, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Botón para guardar el cliente
@@ -341,7 +334,6 @@ def add_client(self):
     ventana_agregar.transient(self.client_manager)
     ventana_agregar.grab_set()
     self.client_manager.wait_window(ventana_agregar)
-
 
 def edit_client(self):
     # Determinar la pestaña activa
@@ -406,7 +398,7 @@ def edit_client(self):
     ventana_editar.title(f"Editar Cliente - {cliente_nombre}")
 
     # Ajustar el tamaño inicial de la ventana según el escalado
-    initial_width = int(600 * self.scaling_factor)
+    initial_width = int(650 * self.scaling_factor)
     initial_height = int(350 * self.scaling_factor)  # Se aumenta la altura para incluir CC y BCC
 
     self.center_window(ventana_editar, initial_width, initial_height)
@@ -416,36 +408,40 @@ def edit_client(self):
         ventana_editar.rowconfigure(i, weight=1)
     ventana_editar.columnconfigure(0, weight=1)
 
+    # Definir fuente para los labels y entradas
+    font_labels = ("Helvetica", 14, "bold")  # Etiquetas en negrita
+    font_entries = ("Helvetica", 14)  # Entradas de texto
+
     # Frame principal dentro de la ventana de edición
     frame_principal = ttk.Frame(ventana_editar, padding=int(10 * self.scaling_factor))
     frame_principal.grid(row=0, column=0, sticky='nsew')
     frame_principal.columnconfigure(1, weight=1)
 
     # Etiqueta y entrada para el nombre del cliente
-    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", style='Custom.TLabel')
+    etiqueta_nombre = ttk.Label(frame_principal, text="Nombre del Cliente:", font=font_labels)
     etiqueta_nombre.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_nombre = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_nombre = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_nombre.insert(0, cliente_nombre)
     entrada_nombre.grid(row=0, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para el correo electrónico
-    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", style='Custom.TLabel')
+    etiqueta_correo = ttk.Label(frame_principal, text="Correo Electrónico:", font=font_labels)
     etiqueta_correo.grid(row=1, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_correo = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_correo = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_correo.insert(0, correo_actual)
     entrada_correo.grid(row=1, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para Correo CC
-    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", style='Custom.TLabel')
+    etiqueta_cc = ttk.Label(frame_principal, text="Correo CC:", font=font_labels)
     etiqueta_cc.grid(row=2, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_cc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_cc = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_cc.insert(0, correo_cc_actual)
     entrada_cc.grid(row=2, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
     # Etiqueta y entrada para Correo BCC
-    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", style='Custom.TLabel')
+    etiqueta_bcc = ttk.Label(frame_principal, text="Correo BCC:", font=font_labels)
     etiqueta_bcc.grid(row=3, column=0, pady=int(5 * self.scaling_factor), sticky='w')
-    entrada_bcc = ttk.Entry(frame_principal, width=int(30 * self.scaling_factor))
+    entrada_bcc = ttk.Entry(frame_principal, font=font_entries, width=int(30 * self.scaling_factor))
     entrada_bcc.insert(0, correo_bcc_actual)
     entrada_bcc.grid(row=3, column=1, pady=int(5 * self.scaling_factor), padx=int(5 * self.scaling_factor), sticky='ew')
 
@@ -458,7 +454,6 @@ def edit_client(self):
     ventana_editar.transient(self.client_manager)
     ventana_editar.grab_set()
     self.client_manager.wait_window(ventana_editar)
-
 
 def delete_client(self):
     # Determinar la pestaña activa
@@ -522,7 +517,6 @@ def delete_client(self):
             messagebox.showinfo("Éxito", "Cliente(s) eliminado(s) exitosamente.")
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error al eliminar el cliente(s): {str(e)}")
-
 
 def add_alias(self):
     # Determinar la pestaña activa
@@ -617,7 +611,6 @@ def add_alias(self):
     ventana_alias.grab_set()
     self.client_manager.wait_window(ventana_alias)
 
-
 def delete_alias(self):
     # Determinar la pestaña activa
     notebook = self.client_manager.nametowidget("!notebook")
@@ -662,7 +655,6 @@ def delete_alias(self):
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error al eliminar el alias: {str(e)}")
 
-
 def on_closing(self):
     # Cerrar la conexión a la base de datos al cerrar la aplicación
     if self.processor:
@@ -670,7 +662,6 @@ def on_closing(self):
     if self.db:
         self.db.close()
     self.destroy()
-
 
 def create_new_list(self):
     def guardar_lista():
@@ -742,7 +733,6 @@ def create_new_list(self):
     ventana_nueva_lista.grab_set()
     self.client_manager.wait_window(ventana_nueva_lista)
 
-
 def delete_selected_list(self):
     selected_lista = self.selected_lista.get()
     if not selected_lista:
@@ -761,7 +751,6 @@ def delete_selected_list(self):
         except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error al eliminar la lista: {str(e)}")
 
-
 def update_list_combobox_ui(self):
     """
     Actualiza los valores del Combobox de listas en la interfaz.
@@ -777,7 +766,6 @@ def update_list_combobox_ui(self):
             self.combobox_listas.set('')
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error al actualizar el Combobox de listas: {str(e)}")
-
 
 def add_client_to_selected_list(self):
     selected_list_name = self.selected_lista.get()
@@ -903,7 +891,6 @@ def export_clients(self):
     except Exception as e:
         messagebox.showerror("Error de exportación", f"No se pudo exportar: {e}")
 
-
 def import_clients(self):
     # Abrir el diálogo de selección de archivo
     file_path = filedialog.askopenfilename(
@@ -967,7 +954,6 @@ def import_clients(self):
         list_id = self.db.get_list_id_by_name("Sin asignar")
         self.db.delete_list(list_id)
         print("La lista 'Sin asignar' fue eliminada después de la importación.")
-
 
 def open_client_manager(self):
     # Obtener la resolución de pantalla y calcular el factor de escala
@@ -1174,7 +1160,7 @@ def open_client_manager(self):
 
     label_aliases = ttk.Label(
         frame_aliases,
-        text="Aliases del Cliente Seleccionado:",
+        text="Consignatario(s):",
         style='Custom.TLabel'
     )
     label_aliases.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
@@ -1348,7 +1334,7 @@ def open_client_manager(self):
 
     label_aliases_all = ttk.Label(
         frame_aliases_all,
-        text="Aliases del Cliente Seleccionado:",
+        text="Consignatario(s):",
         style='Custom.TLabel'
     )
     label_aliases_all.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
@@ -1461,7 +1447,6 @@ def context_menu_add_to_list(self):
     # Mostrar la ventana para seleccionar la lista
     self.show_add_to_list_dialog(tree, selected_items, available_lists)
 
-
 def show_context_menu(self, event):
     """
     Muestra el menú contextual al hacer clic derecho en un Treeview.
@@ -1510,7 +1495,6 @@ def show_context_menu(self, event):
         context_menu.tk_popup(event.x_root, event.y_root)
     # Evitar que el menú contextual permanezca en la pantalla
     context_menu.grab_release()
-
 
 def delete_client_from_context_menu(self):
     """
@@ -1636,8 +1620,6 @@ def edit_alias_inline(self, event):
         self.entry_alias.bind("<FocusOut>", guardar_alias)
         self.entry_alias.bind("<Escape>", cancelar_edicion)
 
-
-
 def undo_action(self, event=None):
     """
     Deshace la última acción realizada.
@@ -1691,15 +1673,9 @@ def undo_action(self, event=None):
     else:
         messagebox.showwarning("Deshacer", "La acción no se puede deshacer.")
 
-
-import threading
-
-
 def send_reports_to_selected_clients(self):
     """
     Envía reportes por correo electrónico a los clientes seleccionados.
-    Se utilizarán los campos de correo principal, así como los de CC y BCC (si están disponibles).
-    Las direcciones en CC y BCC deben estar separadas por comas.
     """
     # Determinar la pestaña activa
     notebook = self.client_manager.nametowidget("!notebook")
@@ -1713,58 +1689,43 @@ def send_reports_to_selected_clients(self):
         messagebox.showwarning("Advertencia", "No se pudo determinar la pestaña activa.")
         return
 
-    # Obtener los ítems seleccionados
     selected_items = tree.selection()
     if not selected_items:
         messagebox.showwarning("Advertencia", "Por favor, selecciona al menos un cliente.")
         return
 
-    try:
-        # Intentar obtener la fecha de última actualización
-        last_update_date = self.processor.get_last_update_date()
-    except Exception as e:
-        # Si hay una excepción (archivo no descargado), preguntar al usuario si desea generar reportes
-        respuesta_generar = messagebox.askyesno("Archivo no disponible",
-                                                "El archivo de actualización no ha sido descargado.\n"
-                                                "¿Desea generar los reportes antes de continuar?")
-        if respuesta_generar:
-            self.processor.run_macro()
-            self.processor.process_file()
-            try:
-                last_update_date = self.processor.get_last_update_date()  # Intentar obtener la fecha nuevamente
-            except Exception:
-                messagebox.showerror("Error", "No se pudo generar una fecha de actualización. Inténtalo de nuevo.")
-                return
-        else:
-            return  # El usuario eligió no continuar sin la fecha de actualización
+    # Obtener la fecha de última actualización desde config.json
+    last_update_date = self.config_manager.get_last_update_date()
 
-    if last_update_date:
+    if not last_update_date:
+        messagebox.showerror("Error", "No se encontró una fecha de última actualización.\n"
+                                      "Por favor, asegúrate de que el archivo Excel ha sido procesado correctamente.")
+        return
+
+    # Lista de formatos posibles
+    formatos_fecha = [
+        "%Y-%m-%d %H:%M:%S.%f",  # Formato con microsegundos
+        "%Y-%m-%d %H:%M:%S",      # Formato sin microsegundos
+        "%Y-%m-%d %H:%M",         # Solo hasta minutos
+        "%Y-%m-%d"                # Solo fecha
+    ]
+
+    formatted_update_date = last_update_date  # Si no logra formatear, usar el original
+    for formato in formatos_fecha:
         try:
-            # Intentar convertir last_update_date a un objeto datetime.
-            # Ajusta el formato si es necesario (por ejemplo, si incluye microsegundos se usaría "%Y-%m-%d %H:%M:%S.%f")
-            last_update_date_obj = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S")
+            last_update_date_obj = datetime.strptime(last_update_date, formato)
             formatted_update_date = last_update_date_obj.strftime("%Y-%m-%d %H:%M")
+            break  # Si encuentra un formato válido, salir del bucle
         except ValueError:
-            formatted_update_date = last_update_date
+            continue  # Si falla, probar con el siguiente
 
-        if len(selected_items) == 1:
-            cliente_nombre = tree.item(selected_items[0], 'values')[1]
-            mensaje = (f"¿Estás seguro de enviar el reporte al cliente '{cliente_nombre}'?\n"
-                       f"Última actualización del reporte: {formatted_update_date}")
-        else:
-            mensaje = (f"¿Estás seguro de enviar reportes a los {len(selected_items)} clientes seleccionados?\n"
-                       f"Última actualización de reportes: {formatted_update_date}")
-    else:
-        mensaje = "No se encontró una fecha de última actualización. ¿Deseas generar los reportes?"
-
+    mensaje = f"¿Estás seguro de enviar los reportes? Última actualización: {formatted_update_date}"
     respuesta_envio = messagebox.askyesno("Confirmar Envío", mensaje)
+
     if not respuesta_envio:
         return
 
-    # Iniciar el proceso de envío en un hilo separado.
-    # La función process_sending_reports ha sido ajustada para extraer los campos:
-    # (correo, correo_cc, correo_bcc) de cada cliente (se espera que el Treeview de "Todos los Clientes"
-    # contenga 5 columnas: ID, Nombre, Correo, Correo CC y Correo BCC).
+    # Iniciar el envío de reportes en un hilo separado
     threading.Thread(target=self.process_sending_reports, args=(selected_items, tree), daemon=True).start()
 
 def open_reports_in_excel(self):

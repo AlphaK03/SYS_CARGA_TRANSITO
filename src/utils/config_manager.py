@@ -2,8 +2,6 @@
 import os
 import json
 import keyring
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 
 def credentials_to_dict(creds):
     return {
@@ -43,11 +41,11 @@ class ConfigManager:
         return {
             "email": "",
             "email_provider": "",
-            "google_credentials": None,
             "microsoft_credentials": None,
             "sharepoint_site_url": "",
             "sharepoint_username": "",
-            "sharepoint_file_url": ""
+            "sharepoint_file_url": "",
+            "last_update_date": ""
         }
 
     # Métodos para manejar el proveedor de correo y el email
@@ -108,30 +106,6 @@ class ConfigManager:
         with open(self.CONFIG_FILE, 'w') as f:
             json.dump(self.config, f, indent=4)
 
-    # Métodos para credenciales de Google OAuth2
-    def set_google_credentials(self, creds):
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        self.config['google_credentials'] = credentials_to_dict(creds)
-        self.save_config()
-
-    def get_google_credentials(self):
-        creds_dict = self.config.get('google_credentials')
-        if creds_dict:
-            creds = Credentials(
-                token=creds_dict.get('token'),
-                refresh_token=creds_dict.get('refresh_token'),
-                token_uri=creds_dict.get('token_uri'),
-                client_id=creds_dict.get('client_id'),
-                client_secret=creds_dict.get('client_secret'),
-                scopes=creds_dict.get('scopes')
-            )
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                self.set_google_credentials(creds)  # Actualizar el token si se ha refrescado
-            return creds
-        return None
-
 
     def clear_credentials(self):
         # Implementa la lógica para limpiar todas las credenciales almacenadas
@@ -158,3 +132,25 @@ class ConfigManager:
     def set_sharepoint_full_url(self, full_url: str):
         self.config["sharepoint_full_url"] = full_url
         self.save_config()
+
+    def get_last_update_date(self) -> str:
+        """
+        Retorna la última fecha de actualización almacenada en config.json.
+        Si no existe, retorna una cadena vacía.
+        """
+        return self.config.get('last_update_date', '')
+
+    def set_last_update_date(self, date_str: str):
+        """
+        Guarda la fecha de última actualización en el archivo de configuración.
+        """
+        self.config['last_update_date'] = date_str
+        self.save_config()
+
+    def clear_last_update_date(self):
+        """
+        Elimina la fecha de última actualización cuando los reportes son eliminados.
+        """
+        self.config.pop('last_update_date', None)
+        self.save_config()
+

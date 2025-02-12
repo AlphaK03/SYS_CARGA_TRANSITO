@@ -4,32 +4,14 @@ import sys
 import os
 import logging
 import requests
-from office365.runtime.auth.user_credential import UserCredential
-from office365.sharepoint.client_context import ClientContext
-from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
-
-
 
 def get_resource_path(relative_path):
     """Obtiene la ruta del recurso empaquetado o del entorno de desarrollo."""
     base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
     return os.path.join(base_path, relative_path)
 
-
-def get_email_google(creds):
-    try:
-        service = build('people', 'v1', credentials=creds)
-        profile = service.people().get(resourceName='people/me', personFields='emailAddresses').execute()
-        email_addresses = profile.get('emailAddresses', [])
-        if email_addresses:
-            return email_addresses[0]['value']
-        else:
-            return None
-    except Exception as e:
-        logging.error(f"Error al obtener el correo electrónico: {str(e)}")
-        return None
 
 
 def get_microsoft_user_info(access_token):

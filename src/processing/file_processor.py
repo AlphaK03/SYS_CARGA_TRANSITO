@@ -1,13 +1,13 @@
 # src/processing/file_processor.py
 
 import os
+import shutil
 import sys
-
+from tkinter import filedialog, messagebox
+from datetime import datetime
 import requests
 import win32com.client
 import pandas as pd
-from office365.runtime.auth.authentication_context import AuthenticationContext
-from office365.sharepoint.client_context import ClientContext
 from openpyxl.styles import Font, PatternFill
 from typing import List, Optional
 from openpyxl import load_workbook
@@ -80,48 +80,6 @@ class FileProcessor:
         self.ctx = None  # SharePoint context
         self.local_file_path = "data/temp/Informe de cargas Power BI.xlsm"  # Ruta al archivo descargado
 
-    def authenticate_sharepoint(self, username: str, password: str):
-        """
-        Autentica en SharePoint y crea el contexto.
-
-        Args:
-            username (str): Nombre de usuario de SharePoint.
-            password (str): Contraseña de SharePoint.
-        """
-        if not username or not password:
-            raise ValueError("Las credenciales de SharePoint no están configuradas.")
-
-        ctx_auth = AuthenticationContext(self.site_url)
-        if ctx_auth.acquire_token_for_user(username, password):
-            self.ctx = ClientContext(self.site_url, ctx_auth)
-        else:
-            raise Exception("Error de autenticación en SharePoint. Por favor, verifica tus credenciales.")
-
-    def download_file(self, username: str, password: str) -> str:
-        """
-        Descarga el archivo de SharePoint y lo guarda en una ubicación temporal.
-
-        Args:
-            username (str): Nombre de usuario de SharePoint.
-            password (str): Contraseña de SharePoint.
-
-        Returns:
-            str: Ruta al archivo descargado localmente.
-        """
-        if not self.ctx:
-            self.authenticate_sharepoint(username, password)
-
-        # Crear carpeta temporal si no existe
-        os.makedirs('data/temp', exist_ok=True)
-        file_name = os.path.basename(self.sharepoint_file_url)
-        self.local_file_path = os.path.join('data/temp', file_name)
-
-        with open(self.local_file_path, "wb") as local_file:
-            file = self.ctx.web.get_file_by_server_relative_url(self.sharepoint_file_url)
-            file.download(local_file)
-            self.ctx.execute_query()
-        return self.local_file_path
-
     def run_macro(self):
         """
         Ejecuta la macro 'ActualizarPBI' en una nueva instancia de Excel y la cierra después de un retraso de 2 segundos.
@@ -180,6 +138,23 @@ class FileProcessor:
         Returns:
             List[str]: Lista de nombres de clientes procesados.
         """
+
+        # Obtener la fecha actual en formato DD-MM-YYYY
+        today_date = datetime.now().strftime("%d-%m-%Y")
+
+        # Obtener la ruta del directorio raíz del proyecto (un nivel arriba de `src`)
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # 📌 Sube un nivel desde `src`
+        historico_dir = os.path.join(root_dir, "histórico")  # 📌 `historico/` estará al lado de `data/`
+
+        # Crear la carpeta "histórico" si no existe
+        os.makedirs(historico_dir, exist_ok=True)
+
+        # Definir la ruta del archivo en la carpeta "histórico"
+        historico_file_path = os.path.join(historico_dir, f"Informe de cargas Power BI_{today_date}.xlsm")
+
+        # Guardar una copia del archivo original en "histórico"
+        shutil.copy2(self.local_file_path, historico_file_path)
+
         # Leer el archivo Excel desde la hoja correspondiente
         df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=3)
 
@@ -188,125 +163,64 @@ class FileProcessor:
 
         # Verificar si 'Consignee' está en las columnas
         if 'Consignee' not in df.columns:
-            raise ValueError("La columna 'Consignee' no se encontró.")
+            raise ValueError("La columna 'Consignee' no se encontró en el archivo.")
 
-        # Obtener los clientes registrados y sus aliases
+        # Obtener los clientes registrados junto con sus correos y aliases
         clients = self.db.get_all_clients()
-        clients_dict = {}
-        for client_id, nombre, correo in clients:
-            aliases = self.db.get_aliases_for_client(client_id)
-            alias_list = [alias for alias_id, alias in aliases]
-            clients_dict[client_id] = {
-                'nombre': nombre,
-                'correo': correo,
-                'aliases': alias_list
-            }
 
-        if not clients_dict:
+        if not clients:
             raise ValueError("No hay clientes registrados en la base de datos.")
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Ruta inicial de la plantilla
+        # Ruta inicial de la plantilla general
         default_template_path = get_resource_path('template/plantilla_Excel.xlsx')
-        template_path = default_template_path
 
-        for client_id, client_data in clients_dict.items():
-            nombre = client_data['nombre']
-            aliases = client_data['aliases']
+        # Mapeo de clientes y plantillas específicas
+        special_clients = {
+            'EPA': 'EPA Report',
+            'ALPEMUSA': 'ALPEMUSA Report',
+            'SAN NICOLAS': 'San Nicolas Report',
+            'PLASTIMEX': 'Plastimex Report'
+        }
 
-            # Si el cliente es 'EPA', ajustar el proceso y la plantilla
-            if nombre == 'EPA':
+        for client_id, nombre, correo, correo_cc, correo_bcc in clients:
+            # Si el cliente tiene una hoja de reporte específica
+            if nombre in special_clients:
+                sheet_name = special_clients[nombre]
                 try:
-                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='EPA Report', header=3)
+                    df_cliente = pd.read_excel(self.local_file_path, sheet_name=sheet_name, header=3)
                 except ValueError:
-                    raise ValueError("La hoja 'EPA Report' no se encontró en el archivo Excel.")
+                    raise ValueError(f"La hoja '{sheet_name}' no se encontró en el archivo Excel.")
 
-                # Cambiar a la plantilla específica para EPA
-                template_path = get_resource_path('template/plantilla_EPA.xlsx')
+                # Plantilla específica para el cliente
+                template_path = get_resource_path(f'template/plantilla_{nombre.upper()}.xlsx')
 
                 # Definir el archivo de salida
                 output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
-                # Crear el archivo Excel con formato usando la plantilla específica
+                # Guardar el archivo con formato
                 _save_excel_with_format(df_cliente, template_path, output_file)
+                continue  # Pasar al siguiente cliente
 
-                # Restablecer la plantilla a la predeterminada
-                template_path = default_template_path
-                continue
-            if nombre == 'ALPEMUSA':
-                try:
-                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='ALPEMUSA Report', header=3)
-                except ValueError:
-                    raise ValueError("La hoja 'ALPEMUSA Report' no se encontró en el archivo Excel.")
+            # Filtrar los datos por los aliases del cliente
+            aliases = self.db.get_aliases_for_client(client_id)
+            alias_list = [alias for alias_id, alias in aliases]
 
-                # Cambiar a la plantilla específica para EPA
-                template_path = get_resource_path('template/plantilla_ALPEMUSA.xlsx')
-
-                # Definir el archivo de salida
-                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
-
-                # Crear el archivo Excel con formato usando la plantilla específica
-                _save_excel_with_format(df_cliente, template_path, output_file)
-
-                # Restablecer la plantilla a la predeterminada
-                template_path = default_template_path
-                continue
-
-            if nombre == 'SAN NICOLAS':
-                try:
-                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='San Nicolas Report', header=3)
-                except ValueError:
-                    raise ValueError("La hoja 'San Nicolas Report' no se encontró en el archivo Excel.")
-
-                # Cambiar a la plantilla específica para EPA
-                template_path = get_resource_path('template/plantilla_SAN_NICOLAS.xlsx')
-
-                # Definir el archivo de salida
-                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
-
-                # Crear el archivo Excel con formato usando la plantilla específica
-                _save_excel_with_format(df_cliente, template_path, output_file)
-
-                # Restablecer la plantilla a la predeterminada
-                template_path = default_template_path
-                continue
-
-            if nombre == 'PLASTIMEX':
-                try:
-                    df_cliente = pd.read_excel(self.local_file_path, sheet_name='Plastimex Report', header=3)
-                except ValueError:
-                    raise ValueError("La hoja 'Plastimex Report' no se encontró en el archivo Excel.")
-
-                # Cambiar a la plantilla específica para EPA
-                template_path = get_resource_path('template/plantilla_PLASTIMEX.xlsx')
-
-                # Definir el archivo de salida
-                output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
-
-                # Crear el archivo Excel con formato usando la plantilla específica
-                _save_excel_with_format(df_cliente, template_path, output_file)
-
-                # Restablecer la plantilla a la predeterminada
-                template_path = default_template_path
-                continue
-
-
-            # Filtrar los datos que coincidan con cualquiera de los aliases
-            if not aliases:
+            if not alias_list:
                 continue  # Si el cliente no tiene aliases, continuar
 
-            df_cliente = df[df['Consignee'].isin(aliases)]
+            df_cliente = df[df['Consignee'].isin(alias_list)]
 
             if df_cliente.empty:
                 continue  # Si no hay datos, continuar
 
             output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
-            # Crear el archivo Excel con formato usando la plantilla general
-            _save_excel_with_format(df_cliente, template_path, output_file)
+            # Guardar el archivo con formato usando la plantilla general
+            _save_excel_with_format(df_cliente, default_template_path, output_file)
 
-        return [client_data['nombre'] for client_id, client_data in clients_dict.items()]
+        return [nombre for client_id, nombre, _, _, _ in clients]
 
     def get_client_file(self, cliente: str) -> Optional[str]:
         """
@@ -332,7 +246,7 @@ class FileProcessor:
 
     def get_last_update_date(self) -> Optional[str]:
         """
-        Obtiene la fecha de la última actualización desde la hoja 'Hora Actualización'.
+        Obtiene la fecha de la última actualización desde la hoja 'Hora Actualización' del Excel.
 
         Returns:
             Optional[str]: La fecha de la última actualización como cadena de texto.
@@ -343,20 +257,24 @@ class FileProcessor:
         try:
             # Cargar el libro de Excel
             workbook = load_workbook(filename=self.local_file_path, data_only=True)
+
             # Seleccionar la hoja 'Hora Actualización'
             if 'Hora Actualización' in workbook.sheetnames:
                 sheet = workbook['Hora Actualización']
-                # Encontrar la columna que contiene 'Fecha de actualización' en la primera fila
+
+                # Buscar la columna con el encabezado 'Fecha de actualización'
                 for col in sheet.iter_cols(min_row=1, max_row=1):
                     if col[0].value == 'Fecha de actualización':
                         # Obtener el valor en la fila 2 de esa columna
                         update_date = sheet.cell(row=2, column=col[0].column).value
-                        return str(update_date)
-                # Si no se encuentra la columna
-                return None
-            else:
-                # Si no existe la hoja 'Hora Actualización'
-                return None
+
+                        if update_date:
+                            # Guardar la fecha en config.json
+                            self.config_manager.set_last_update_date(str(update_date))
+                            return str(update_date)
+
+            return None  # Si la hoja no tiene la fecha
+
         except Exception as e:
             print(f"Error al obtener la fecha de actualización: {e}")
             return None
@@ -364,19 +282,31 @@ class FileProcessor:
     def download_file_with_token(self, access_token: str) -> str:
         """
         Descarga el archivo de SharePoint usando peticiones REST y un token OAuth2 (autenticación moderna).
+        Si el archivo ya existe en la carpeta de destino y es válido, lo reutiliza.
+        Si la descarga falla, permite al usuario seleccionar el archivo manualmente.
         """
-        # 1) Crear carpeta local de destino
+
+        # 1) Crear carpeta local de destino si no existe
         os.makedirs('data/temp', exist_ok=True)
 
-        # 2) Determinar el nombre de archivo local
+        # 2) Determinar el nombre del archivo local
         file_name = os.path.basename(self.sharepoint_file_url)
         self.local_file_path = os.path.join('data', 'temp', file_name)
 
-        # 3) Escapar la URL para caracteres especiales
+        # 3) Verificar si el archivo ya existe y es válido
+        if os.path.exists(self.local_file_path):
+            if os.path.getsize(self.local_file_path) > 1024:  # 🔹 Verifica que el archivo tenga contenido (más de 1 KB)
+                print(f"✅ Archivo ya existente encontrado en: {self.local_file_path}")
+                return self.local_file_path  # Devolver el archivo sin descargarlo nuevamente
+            else:
+                print(f"⚠️ Archivo encontrado pero inválido (posible error previo en descarga). Eliminando...")
+                os.remove(self.local_file_path)  # Eliminar archivo vacío o corrupto
+
+        # 4) Escapar la URL para caracteres especiales
         server_relative_path = quote(self.sharepoint_file_url)
         endpoint = f"{self.site_url}/_api/web/GetFileByServerRelativeUrl('{server_relative_path}')/$value"
 
-        # 4) Hacer la petición GET con Bearer token
+        # 5) Hacer la petición GET con Bearer token
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json;odata=nometadata"
@@ -384,13 +314,37 @@ class FileProcessor:
         response = requests.get(endpoint, headers=headers, stream=True)
 
         if response.status_code == 200:
-            # 5) Guardar contenido en local_file_path
+            # 6) Guardar contenido en local_file_path
             with open(self.local_file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"Archivo descargado en: {self.local_file_path}")
+            print(f"📥 Archivo descargado en: {self.local_file_path}")
             return self.local_file_path
         else:
-            # Imprimir más información sobre el error
-            print(f"Error al descargar: {response.status_code} - {response.text}")
-            raise Exception(f"Error al descargar (HTTP {response.status_code}): {response.text}")
+            print(f"❌ Error al descargar: {response.status_code} - {response.text}")
+            messagebox.showerror("Error de descarga", "No se pudo descargar el archivo de SharePoint.")
+
+            # 7) Opción de permitir al usuario seleccionar el archivo manualmente
+            if not os.path.exists(self.local_file_path):
+                messagebox.showinfo("Seleccionar archivo",
+                                    "El archivo no fue descargado. Por favor, selecciona el archivo localmente.")
+
+                # Abre un cuadro de diálogo para que el usuario seleccione un archivo local
+                selected_file_path = filedialog.askopenfilename(
+                    title="Selecciona el archivo",
+                    filetypes=[("Archivos Excel", "*.xlsx;*.xlsm"), ("Todos los archivos", "*.*")]
+                )
+
+                if selected_file_path:
+                    try:
+                        # Copiar el archivo seleccionado en la carpeta destino
+                        shutil.copy(selected_file_path, self.local_file_path)
+                        print(f"📂 Archivo copiado a: {self.local_file_path}")
+                        return self.local_file_path
+                    except Exception as e:
+                        messagebox.showerror("Error", f"No se pudo copiar el archivo: {e}")
+                        return None
+                else:
+                    messagebox.showwarning("Sin archivo seleccionado",
+                                           "No se seleccionó ningún archivo. No se puede continuar.")
+                    return None

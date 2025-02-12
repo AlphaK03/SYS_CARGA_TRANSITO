@@ -1,32 +1,26 @@
 # src/gui/app.py
+import ctypes
 import http.server
 import json
 import os
+import shutil
 import socketserver
 import sqlite3
 import sys
 import time
-import urllib
 from datetime import datetime
-from urllib.parse import quote
 import threading
 from urllib.parse import urlparse, parse_qs
-
-import msal.exceptions
 import ttkbootstrap as ttk
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, filedialog
+from tkinter import messagebox
 import webbrowser
 import requests
 import logging
 from PIL import Image, ImageTk, ImageSequence
-from dotenv import load_dotenv
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 from email_service.email_sender import EmailSender
 from msal import PublicClientApplication
-from office365.runtime.auth.user_credential import UserCredential
-from office365.sharepoint.client_context import ClientContext
+
 from processing.file_processor import FileProcessor
 from database.client_database import ClientDatabase
 from tkhtmlview import HTMLLabel
@@ -47,41 +41,20 @@ from src.manager.client_manager import delete_client_from_context_menu, edit_ali
     send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
 
 # Microsoft OAuth2 - ASW SAN JOSE
-
 MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
 MICROSOFT_TENANT_ID = "common"
+
+# Establecer AppUserModelID
+app_id = "CHC.Reportes"
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
 
 from gui.styles import init_styles
 # Importar funciones y clases desde los módulos que creamos
 from gui.helpers import (
     get_resource_path,
-    get_email_google,
-    get_microsoft_user_info,
+    get_microsoft_user_info
 )
 
-
-
-class AuthHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, auth_code_container, **kwargs):
-        self.auth_code_container = auth_code_container
-        super().__init__(*args, **kwargs)
-
-    def do_GET(self):
-        parsed_path = urlparse(self.path)
-        query = parse_qs(parsed_path.query)
-        if 'code' in query:
-            self.auth_code_container.append(query['code'][0])
-            html_content = '<html><body><h1>Autenticación exitosa. Puedes cerrar esta ventana.</h1></body></html>'
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(html_content.encode('utf-8'))
-        else:
-            html_content = '<html><body><h1>Error en la autenticación.</h1></body></html>'
-            self.send_response(400)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(html_content.encode('utf-8'))
 
 def open_user_manual_window():
     url = "https://alphak03.github.io/CHC_REPORTES_MANUAL-DE-USUARIO/"  # Reemplaza con el URL del manual de usuario
@@ -103,6 +76,22 @@ class Application(ttk.Window):
 
         super().__init__(themename="flatly")  # Mantener el tema
         self.title("CHC REPORTES")
+
+        # 📌 Ruta del icono
+        if getattr(sys, 'frozen', False):
+            # Si el programa está compilado en un .exe con PyInstaller
+            base_path = sys._MEIPASS
+        else:
+            # Si se ejecuta en el entorno de desarrollo
+            base_path = os.path.abspath(".")
+
+        icon_path = os.path.join(base_path, "resources", "icono.ico")
+
+        # 📌 Establecer el icono de la ventana
+        if os.path.exists(icon_path):
+            self.iconbitmap(icon_path)
+        else:
+            print(f"⚠️ Advertencia: No se encontró el icono en {icon_path}")
 
         # Inicializar la etiqueta de progreso usando grid
         self.progress_label = ttk.Label(self, text="", style='Info.TLabel')
@@ -202,72 +191,84 @@ class Application(ttk.Window):
 
     def get_sharepoint_access_token(self):
         """
-        Obtiene el token de acceso para SharePoint con manejo de errores.
+        Obtiene el token de acceso para SharePoint con persistencia en caché.
         Evita bloqueos si el usuario cierra la pestaña de autenticación sin iniciar sesión.
         """
-        # Leer la site_url desde la configuración
-        raw_site_url = self.config_manager.get_sharepoint_site_url()
+        try:
+            # Leer site_url desde configuración
+            raw_site_url = self.config_manager.get_sharepoint_site_url()
 
-        # Extraer el dominio base de SharePoint
-        parsed_url = urllib.parse.urlparse(raw_site_url)
-        base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            # Extraer dominio base de SharePoint
+            from urllib.parse import urlparse
+            parsed_url = urlparse(raw_site_url)
+            base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-        # Definir los scopes dinámicamente
-        scopes = [f"{base_domain}/.default"]
+            # Definir scopes correctamente
+            scopes = [f"{base_domain}/.default"]
 
-        accounts = self.sharepoint_msal_app.get_accounts()
-        result = None
+            # Intentar obtener el token en modo silencioso
+            accounts = self.sharepoint_msal_app.get_accounts()
+            result = None
 
-        # Intentar obtener el token en modo silencioso
-        if accounts:
-            result = self.sharepoint_msal_app.acquire_token_silent(scopes, account=accounts[0])
+            if accounts:
+                result = self.sharepoint_msal_app.acquire_token_silent(scopes, account=accounts[0])
 
-        if result and 'access_token' in result:
-            return result['access_token']
+            if result and "access_token" in result:
+                print("✅ Token obtenido de caché")
+                return result["access_token"]
 
-        # Si el token no se obtuvo silenciosamente, iniciar autenticación interactiva en un hilo
-        def acquire_token():
-            nonlocal result
-            try:
-                result = self.sharepoint_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
-            except Exception as e:
-                result = {'error_description': str(e)}
+            print("🔄 No se encontró token en caché. Iniciando autenticación interactiva...")
 
-        # Crear un hilo para la autenticación
-        auth_thread = threading.Thread(target=acquire_token, daemon=True)
-        auth_thread.start()
+            # Autenticación interactiva en un hilo separado
+            def acquire_token():
+                nonlocal result
+                try:
+                    result = self.sharepoint_msal_app.acquire_token_interactive(scopes=scopes, prompt='select_account')
+                except Exception as e:
+                    result = {'error_description': str(e)}
 
-        # Esperar con un timeout de 35 segundos
-        start_time = time.time()
-        while auth_thread.is_alive():
-            if time.time() - start_time > 35:
-                messagebox.showwarning("Tiempo agotado", "La autenticación tardó demasiado. Inténtalo de nuevo.")
+            auth_thread = threading.Thread(target=acquire_token, daemon=True)
+            auth_thread.start()
+
+            # Esperar con timeout de 35 segundos
+            start_time = time.time()
+            while auth_thread.is_alive():
+                if time.time() - start_time > 35:
+                    messagebox.showwarning("Tiempo agotado", "La autenticación tardó demasiado. Inténtalo de nuevo.")
+                    return None
+                time.sleep(1)
+
+                # Si se obtuvo un token, almacenarlo en caché
+            if result and "access_token" in result:
+                self.sharepoint_token_cache.save(
+                    self.sharepoint_msal_app)  # 📌 Guardar token en caché después de autenticación
+                print("✅ Token guardado en caché correctamente")
+                return result["access_token"]
+            else:
+                error_message = result.get("error_description",
+                                           "No se pudo obtener el token de acceso para SharePoint.")
+                messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_message}")
                 return None
-            time.sleep(1)  # Esperar 1 segundo antes de verificar de nuevo
 
-        # Verificar si se obtuvo un token
-        if result and "access_token" in result:
-            return result["access_token"]
-        else:
-            error_message = result.get("error_description", "No se pudo obtener el token de acceso para SharePoint.")
-            messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_message}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error inesperado al obtener el token de SharePoint: {str(e)}")
             return None
 
-    def clear_email_cache(self):
-        self.email_token_cache.clear_cache()
 
-    def clear_sharepoint_cache(self):
-        self.sharepoint_token_cache.clear_cache()
 
     def create_widgets(self):
+
+        # Ajustar la fuente del menú
+        menu_font = ("Helvetica", 14)  # Aumentar tamaño de letra
         # Crear la barra de menú
-        menu_bar = tk.Menu(self)
+        menu_bar = tk.Menu(self, font=menu_font)
         self.config(menu=menu_bar)
+
 
         #
         # Menú "Configuración"
         #
-        config_menu = tk.Menu(menu_bar, tearoff=0)
+        config_menu = tk.Menu(menu_bar, tearoff=0, font=menu_font)
 
         # Sección relacionada con el correo
         config_menu.add_command(
@@ -287,6 +288,8 @@ class Application(ttk.Window):
         )
         config_menu.add_separator()  # Otra línea separadora
 
+
+
         # Opción para salir
         config_menu.add_command(
             label="Salir",
@@ -298,7 +301,7 @@ class Application(ttk.Window):
         #
         # Menú "Gestión"
         #
-        gestion_menu = tk.Menu(menu_bar, tearoff=0)
+        gestion_menu = tk.Menu(menu_bar, tearoff=0, font=menu_font)
         gestion_menu.add_command(label="Gestor de Clientes", command=self.open_client_manager)
         gestion_menu.add_command(label="Importar Clientes (JSON)", command=self.import_clients)
         gestion_menu.add_command(label="Exportar Clientes (JSON)", command=self.export_clients)
@@ -307,7 +310,7 @@ class Application(ttk.Window):
         #
         # Menú "Ayuda"
         #
-        ayuda_menu = tk.Menu(menu_bar, tearoff=0)
+        ayuda_menu = tk.Menu(menu_bar, tearoff=0, font=menu_font)
         ayuda_menu.add_command(label="Acerca de", command=self.open_about_window)
         menu_bar.add_cascade(label="Ayuda", menu=ayuda_menu)
 
@@ -446,13 +449,6 @@ class Application(ttk.Window):
 
         # Configurar el evento de redimensionamiento
 
-    def start_loading_animation(self):
-        if self.loading_frames:
-            self.loading_label.grid()  # Mostrar el label
-            self.loading_index = 0
-            self.animate_loading()
-
-
     def get_current_authenticated_user(self):
         """
         Obtiene la información del usuario actualmente autenticado.
@@ -528,7 +524,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.3.3"
+        version = "Versión 2.3.6"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -639,17 +635,6 @@ class Application(ttk.Window):
         privacy_window.transient(self)
         privacy_window.grab_set()
         self.wait_window(privacy_window)
-
-    def animate_loading(self):
-        frame = self.loading_frames[self.loading_index]
-        self.loading_label.configure(image=frame)
-        self.loading_index = (self.loading_index + 1) % len(self.loading_frames)
-        self.loading_animation = self.loading_label.after(100, self.animate_loading)  # Actualizar cada 100 ms
-
-    def stop_loading_animation(self):
-        if self.loading_frames:
-            self.loading_label.after_cancel(self.loading_animation)
-            self.loading_label.grid_remove()  # Ocultar el label
 
     def update_progress(self, message, style='Info.TLabel'):
         """
@@ -867,7 +852,7 @@ class Application(ttk.Window):
     def open_email_template_settings_window(self):
         """
         Abre una ventana para configurar la plantilla del cuerpo de correo.
-        El usuario puede usar {CLIENT_NAME} como marcador de posición.
+        El usuario puede usar {CLIENT_NAME} y {LAST_UPDATE_DATE} como marcadores de posición.
         """
         config_window = tk.Toplevel(self)
         config_window.title("Configurar Plantilla de Correo")
@@ -887,7 +872,7 @@ class Application(ttk.Window):
         top_frame = ttk.Frame(frame)
         top_frame.pack(fill='x', pady=(0, 10))
 
-        # Botón de guardar (ahora al lado de los otros botones)
+        # Botón de guardar
         def save_template():
             template = text_box.get("1.0", tk.END).strip()
             self.config_manager.set_email_body_template(template)
@@ -939,11 +924,25 @@ class Application(ttk.Window):
         )
         br_button.pack(side='left', padx=5)
 
+        # Botón para insertar {LAST_UPDATE_DATE} en la plantilla
+        def insert_last_update_placeholder():
+            text_box.insert(tk.INSERT, "{LAST_UPDATE_DATE}")
+
+        last_update_button = ttk.Button(
+            top_frame,
+            text="Insertar Última Fecha",
+            command=insert_last_update_placeholder,
+            style='YellowWarning.TButton'  # 🔹 Usa un estilo amarillo para destacar este botón
+        )
+        last_update_button.pack(side='left', padx=5)
+
         # Explicación general
         instrucciones_label = ttk.Label(
             frame,
             text=(
-                "Personaliza el cuerpo del correo. Puedes usar {CLIENT_NAME} donde desees que aparezca el nombre del cliente.\n"
+                "Personaliza el cuerpo del correo. Puedes usar:\n"
+                "• {CLIENT_NAME} para el nombre del cliente.\n"
+                "• {LAST_UPDATE_DATE} para la última fecha de actualización de los datos.\n"
                 "También puedes escribir texto plano o usar etiquetas HTML básicas como <b> para negrita y <br> para saltos de línea."
             ),
             style='Custom.TLabel',
@@ -982,6 +981,23 @@ class Application(ttk.Window):
                 self.update_progress("Operación cancelada por el usuario.", style='Warning.TLabel')
                 return
 
+            # Vaciar la carpeta antes de generar los nuevos reportes
+            try:
+                for file in os.listdir(report_folder):
+                    file_path = os.path.join(report_folder, file)
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)  # Eliminar archivos y enlaces simbólicos
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)  # Eliminar carpetas dentro de report_folder
+                print("Se han eliminado los reportes previos.")
+                # 🔹 Limpiar la fecha de última actualización
+                self.config_manager.clear_last_update_date()
+                print("Se eliminó la última fecha de modificación.")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo limpiar la carpeta 'data/reportes': {e}")
+                return
+
         # Leer site_url/file_url desde config_manager
         site_url = self.config_manager.get_sharepoint_site_url()
         file_url = self.config_manager.get_sharepoint_file_url()
@@ -1015,6 +1031,7 @@ class Application(ttk.Window):
 
             # Obtener la fecha de la última actualización
             last_update_date = self.processor.get_last_update_date()
+            self.config_manager.set_last_update_date(last_update_date)
             if last_update_date:
                 # Formatear la fecha para eliminar los segundos
                 last_update_date = datetime.strptime(last_update_date, "%Y-%m-%d %H:%M:%S.%f").strftime(
@@ -1022,7 +1039,7 @@ class Application(ttk.Window):
 
                 # Actualizar el mensaje de progreso con el texto centrado y la fecha formateada
                 self.progress_label.config(anchor='center')  # Asegura que el texto esté centrado
-                self.update_progress(f"Listo. Última actualización: {last_update_date}",
+                self.update_progress(f"Listo. Última actualización del BI: {last_update_date}",
                                      style='Success.TLabel')
             else:
                 # Si no se pudo obtener la fecha, mostrar el mensaje sin la fecha
@@ -1048,7 +1065,6 @@ class Application(ttk.Window):
             # Asegurarse de cerrar el archivo si la instancia de processor existe
             if self.processor and hasattr(self.processor, 'close') and callable(self.processor.close):
                 self.processor.close()
-            self.stop_loading_animation()
 
     def ask_yes_no_custom(self, title: str, message: str) -> bool:
         """
@@ -1100,7 +1116,6 @@ class Application(ttk.Window):
 
         return user_answer.get()
 
-
     def send_mails(self):
         # Mostrar el GIF de carga y actualizar el mensaje de progreso
         self.update_progress("********************************************************", style='Delete.TLabel')
@@ -1118,7 +1133,6 @@ class Application(ttk.Window):
             user_info = self.get_current_authenticated_user()
             if not user_info:
                 self.update_progress("Autenticación fallida. No se pueden enviar correos.", style='Error.TLabel')
-                self.stop_loading_animation()
                 return
             else:
                 self.update_progress("Autenticación exitosa. Preparando para enviar correos...", style='Success.TLabel')
@@ -1128,7 +1142,6 @@ class Application(ttk.Window):
             email = user_info['email']
             if not email:
                 self.update_progress("No se pudo obtener el correo electrónico del usuario.", style='Error.TLabel')
-                self.stop_loading_animation()
                 return
 
             # Seleccionar la lista para enviar correos
@@ -1136,7 +1149,6 @@ class Application(ttk.Window):
             if not listas:
                 messagebox.showwarning("Advertencia", "No hay listas disponibles. Por favor, crea una lista primero.")
                 self.update_progress("No hay listas disponibles para enviar correos.", style='Warning.TLabel')
-                self.stop_loading_animation()
                 return
 
             last_update_date = self.processor.get_last_update_date()
@@ -1199,10 +1211,9 @@ class Application(ttk.Window):
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
         finally:
-            self.stop_loading_animation()
+            pass
 
     def send_mails_to_list(self, list_id):
-        self.start_loading_animation()
         self.update_progress("********************************************************", style='Delete.TLabel')
         self.update_progress("Enviando los reportes...", style='Info.TLabel')
         self.update_idletasks()
@@ -1211,7 +1222,6 @@ class Application(ttk.Window):
             if not self.processor:
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("Primero debes generar los reportes.", style='Warning.TLabel')
-                self.stop_loading_animation()
                 return
 
             # Extrae todos los campos: ID, Nombre, Correo, Correo CC y Correo BCC
@@ -1223,17 +1233,26 @@ class Application(ttk.Window):
             if not clientes_con_correo:
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("No hay clientes con correos asociados para enviar.", style='Warning.TLabel')
-                self.stop_loading_animation()
                 return
 
+            # Obtener la plantilla del correo
             template = self.config_manager.get_email_body_template()
+
+            # Obtener la fecha del día actual en formato dd/mm/yyyy
+            current_date = datetime.now().strftime("%d/%m/%Y")
+
             errores_envio = []
             for client_id, cliente, correo, correo_cc, correo_bcc in clientes_con_correo:
                 archivo_path = self.processor.get_client_file(cliente)
                 if archivo_path:
+                    # Reemplazar los marcadores en la plantilla del correo
                     cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
+                    cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}",
+                                                      current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+
                     asunto = f"Reporte para {cliente}"
-                    # Llamada actualizada para incluir cc y bcc
+
+                    # Enviar el correo
                     success, msg = self.email_sender.send_email(
                         to_email=correo,
                         subject=asunto,
@@ -1242,6 +1261,7 @@ class Application(ttk.Window):
                         cc_emails=correo_cc,
                         bcc_emails=correo_bcc
                     )
+
                     if not success:
                         if "Se requiere reautenticación" in msg:
                             self.update_progress("", style='Info.TLabel')
@@ -1265,7 +1285,7 @@ class Application(ttk.Window):
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", style='Error.TLabel')
         finally:
-            self.stop_loading_animation()
+            pass
 
     def open_client_manager(self):
         open_client_manager(self)
@@ -1623,13 +1643,17 @@ class Application(ttk.Window):
     def send_reports_to_selected_clients(self):
         send_reports_to_selected_clients(self)
 
+    import os
+
     def process_sending_reports(self, selected_items, tree):
-        self.after(0, lambda: self.start_loading_animation())
         self.after(0, lambda: self.update_progress("Enviando reportes...", style='Info.TLabel'))
 
         errores_envio = []
         enviados_exitosamente = []
         template = self.config_manager.get_email_body_template()
+
+        # Obtener la fecha del día actual en formato dd/mm/yyyy
+        current_date = datetime.now().strftime("%d/%m/%Y")
 
         for item in selected_items:
             client_values = tree.item(item, 'values')
@@ -1648,12 +1672,16 @@ class Application(ttk.Window):
             reporte_path = self.processor.get_client_file(cliente_nombre)
             if not reporte_path or not os.path.exists(reporte_path):
                 errores_envio.append(
-                    f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes")
+                    f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes.")
                 continue
 
+            # Reemplazo de variables en la plantilla del correo
             cuerpo_html = template.replace("{CLIENT_NAME}", cliente_nombre)
+            cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+
             asunto = f"Reporte para {cliente_nombre}"
-            # Llamada al método send_email con los tres campos de destinatarios
+
+            # Enviar correo con CC y BCC
             success, msg = self.email_sender.send_email(
                 to_email=cliente_correo,
                 subject=asunto,
@@ -1662,6 +1690,7 @@ class Application(ttk.Window):
                 cc_emails=cliente_correo_cc,
                 bcc_emails=cliente_correo_bcc
             )
+
             if success:
                 enviados_exitosamente.append(cliente_nombre)
             else:
@@ -1679,11 +1708,21 @@ class Application(ttk.Window):
         else:
             self.after(0, lambda: messagebox.showinfo("Éxito", "Todos los reportes fueron enviados exitosamente."))
 
-        self.after(0, lambda: self.stop_loading_animation())
-
     def open_reports_in_excel(self):
         open_reports_in_excel(self)
 
     def select_all_with_reports_in_all_clients(self):
         select_all_with_reports_in_all_clients(self)
+
+    def is_sharepoint_session_active(self):
+        """
+        Verifica si hay una sesión activa en SharePoint revisando si hay tokens almacenados en el caché.
+        """
+        token_cache = self.sharepoint_msal_app.token_cache.serialize()
+
+        if token_cache:
+            token_data = json.loads(token_cache)
+            return any(entry.get("credential_type") == "RefreshToken" for entry in token_data.get("AccessToken", []))
+
+        return False  # Si no hay tokens almacenados, no hay sesión activa
 
