@@ -41,7 +41,8 @@ from src.manager.client_manager import delete_client_from_context_menu, edit_ali
     send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
 
 # Microsoft OAuth2 - ASW SAN JOSE
-MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
+MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
+#MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
 MICROSOFT_TENANT_ID = "common"
 
 # Establecer AppUserModelID
