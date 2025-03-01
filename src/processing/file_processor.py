@@ -144,7 +144,7 @@ class FileProcessor:
 
         # Obtener la ruta del directorio raíz del proyecto (un nivel arriba de `src`)
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # 📌 Sube un nivel desde `src`
-        historico_dir = os.path.join(root_dir, "histórico")  # 📌 `historico/` estará al lado de `data/`
+        historico_dir = os.path.join(root_dir, "data/histórico")  # 📌 `historico/` estará al lado de `data/`
 
         # Crear la carpeta "histórico" si no existe
         os.makedirs(historico_dir, exist_ok=True)

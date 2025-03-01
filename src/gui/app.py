@@ -41,8 +41,8 @@ from src.manager.client_manager import delete_client_from_context_menu, edit_ali
     send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
 
 # Microsoft OAuth2 - ASW SAN JOSE
-MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
-#MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
+#MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
+MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
 MICROSOFT_TENANT_ID = "common"
 
 # Establecer AppUserModelID
@@ -255,8 +255,6 @@ class Application(ttk.Window):
             messagebox.showerror("Error", f"Error inesperado al obtener el token de SharePoint: {str(e)}")
             return None
 
-
-
     def create_widgets(self):
 
         # Ajustar la fuente del menú
@@ -264,7 +262,6 @@ class Application(ttk.Window):
         # Crear la barra de menú
         menu_bar = tk.Menu(self, font=menu_font)
         self.config(menu=menu_bar)
-
 
         #
         # Menú "Configuración"
@@ -282,14 +279,11 @@ class Application(ttk.Window):
         )
         config_menu.add_separator()  # Línea separadora
 
-
         config_menu.add_command(
             label="Configurar URL de Archivo en SharePoint",
             command=self.open_sharepoint_file_settings_window
         )
         config_menu.add_separator()  # Otra línea separadora
-
-
 
         # Opción para salir
         config_menu.add_command(
@@ -362,7 +356,7 @@ class Application(ttk.Window):
 
                 # Configurar el label de la imagen
                 self.logo_label.config(image=self.logo_photo)
-                self.logo_label.image = self.logo_photo  # Mantener la referencia para evitar que se libere la memoria
+                self.logo_label.image = self.logo_photo  # Mantener la referencia para evitar liberación
 
             except Exception as e:
                 logging.error(f"Error al cargar la imagen: {e}")
@@ -393,9 +387,11 @@ class Application(ttk.Window):
         frame_botones = tk.Frame(self, bg='white')
         frame_botones.grid(row=3, column=0, padx=10, pady=10, sticky='ew')
 
-        frame_botones.columnconfigure(0, weight=1)  # Espacio en la izquierda del botón
-        frame_botones.columnconfigure(1, weight=2)  # Espacio donde se coloca el botón
-        frame_botones.columnconfigure(2, weight=1)  # Espacio en la derecha del botón
+        # Reajustar para colocar el engranaje
+        frame_botones.columnconfigure(0, weight=1)  # Espacio a la izquierda
+        frame_botones.columnconfigure(1, weight=2)  # Botón principal
+        frame_botones.columnconfigure(2, weight=0)  # Botón engranaje
+        frame_botones.columnconfigure(3, weight=1)  # Espacio a la derecha
 
         # Botón para generar reportes (centrado)
         boton_generar = ttk.Button(
@@ -404,17 +400,43 @@ class Application(ttk.Window):
             command=self.filter_and_generate,
             style='BlueZodiac.TButton'
         )
-        # Ubicar el botón en la segunda columna, centrado en el frame
         boton_generar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
-        # # Botón para enviar correos (Eliminado)
-        # boton_enviar = ttk.Button(
-        #     frame_botones,
-        #     text="Enviar Correos",
-        #     command=self.send_mails,
-        #     style='YellowSea.TButton'
-        # )
-        # boton_enviar.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        # Botón para generar y enviar reportes automáticamente
+        boton_generar_enviar = ttk.Button(
+            frame_botones,
+            text="Generar y Enviar (Automático)",
+            command=self.filter_generate_and_send,
+            style='GreenSuccess.TButton'
+        )
+        boton_generar_enviar.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
+
+        # Agregar un botón de engranaje al lado del botón "Generar y Enviar (Automático)"
+        gear_icon_path = get_resource_path('resources/gear_icon_b.png')  # Ajusta la ruta al ícono
+        if os.path.exists(gear_icon_path):
+            try:
+                gear_image = Image.open(gear_icon_path).resize((20, 20), Image.Resampling.LANCZOS)
+                self.gear_icon = ImageTk.PhotoImage(gear_image)
+            except Exception as e:
+                print(f"Error al cargar ícono de engranaje: {e}")
+                self.gear_icon = None
+        else:
+            self.gear_icon = None
+
+        boton_configurar_clientes = ttk.Button(
+            frame_botones,
+            command=self.open_client_selection_window,  # Tu función para abrir la ventana de checks
+            style='Toolbutton'
+        )
+
+        if self.gear_icon:
+            boton_configurar_clientes.config(image=self.gear_icon)
+        else:
+            # Si no hay imagen, usar un emoji
+            boton_configurar_clientes.config(text="⚙")
+
+        # Ubicar engranaje al lado del botón "Generar y Enviar (Automático)" (misma fila: 1, columna: 2)
+        boton_configurar_clientes.grid(row=1, column=2, padx=(0, 5), pady=5, sticky='w')
 
         # Label para mostrar mensajes de progreso
         self.progress_label = ttk.Label(
@@ -428,8 +450,10 @@ class Application(ttk.Window):
         loading_gif_path = get_resource_path('resources/loading.gif')
         if os.path.exists(loading_gif_path):
             try:
-                self.loading_frames = [ImageTk.PhotoImage(img) for img in
-                                       ImageSequence.Iterator(Image.open(loading_gif_path))]
+                self.loading_frames = [
+                    ImageTk.PhotoImage(img)
+                    for img in ImageSequence.Iterator(Image.open(loading_gif_path))
+                ]
                 self.loading_label = tk.Label(self, bg='white')
                 self.loading_label.grid(row=5, column=0, padx=10, pady=5, sticky='n')
                 self.loading_label.grid_remove()  # Ocultar el label inicialmente
@@ -525,7 +549,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.3.6"
+        version = "Versión 2.3.7"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -1066,6 +1090,196 @@ class Application(ttk.Window):
             # Asegurarse de cerrar el archivo si la instancia de processor existe
             if self.processor and hasattr(self.processor, 'close') and callable(self.processor.close):
                 self.processor.close()
+
+    def generate_reports_simplified(self):
+        """
+        Genera los reportes eliminando reportes anteriores sin confirmación
+        y ejecutando tdo el proceso sin mostrar mensajes al usuario.
+        """
+
+        # Ruta de la carpeta donde se generan los reportes
+        report_folder = os.path.join(os.getcwd(), "data/reportes")
+
+        # Eliminar reportes previos sin preguntar
+        if os.path.exists(report_folder):
+            try:
+                for file in os.listdir(report_folder):
+                    file_path = os.path.join(report_folder, file)
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                self.config_manager.clear_last_update_date()  # Limpiar la fecha de última actualización
+            except Exception as e:
+                print(f"Error al limpiar reportes previos: {e}")
+                return
+
+        # Obtener configuración de SharePoint
+        site_url = self.config_manager.get_sharepoint_site_url()
+        file_url = self.config_manager.get_sharepoint_file_url()
+
+        try:
+            # Instancia de FileProcessor
+            self.processor = FileProcessor(site_url, file_url)
+
+            # Obtener token de SharePoint
+            token = self.get_sharepoint_access_token()
+            if not token:
+                return
+
+            # Descargar el archivo
+            self.processor.download_file_with_token(token)
+
+            # Ejecutar macro en Excel
+            self.processor.run_macro()
+
+            # Procesar y generar reportes
+            self.processor.process_file()
+
+            # Actualizar fecha de última modificación
+            last_update_date = self.processor.get_last_update_date()
+            if last_update_date:
+                self.config_manager.set_last_update_date(last_update_date)
+
+        except Exception as e:
+            print(f"Error en la generación de reportes: {e}")
+        finally:
+            if self.processor and hasattr(self.processor, 'close'):
+                self.processor.close()
+
+    def filter_generate_and_send(self):
+        """
+        Genera los reportes y los envía automáticamente sin preguntar.
+        """
+        self.generate_reports_simplified()
+        self.send_mails_filtered()
+
+    def open_client_selection_window(self):
+        """
+        Ventana de configuración para seleccionar clientes que recibirán correos.
+        Guarda el estado en un archivo JSON para persistencia.
+        """
+        config_file = "clientes_config.json"
+
+        # Cargar configuración previa si existe
+        if os.path.exists(config_file):
+            with open(config_file, "r", encoding="utf-8") as f:
+                client_config = json.load(f)
+        else:
+            client_config = {}
+
+        # Obtener la lista de clientes desde la base de datos
+        clientes = self.db.get_all_clients()  # Retorna tuplas (id, nombre, correo, correo_cc, correo_bcc)
+
+        if not clientes:
+            messagebox.showwarning("Advertencia", "No hay clientes en la base de datos.")
+            return
+
+        # Crear ventana
+        window = tk.Toplevel(self)
+        window.title("Seleccionar Clientes para Envío")
+
+        # Ajustar tamaño de la ventana y centrar
+        self.center_window(window, 400, 500)
+
+        # Frame de contenido
+        frame = ttk.Frame(window, padding=10)
+        frame.pack(expand=True, fill="both")
+
+        # Etiqueta de instrucciones
+        ttk.Label(frame, text="Selecciona los clientes que recibirán correos:", style='Custom.TLabel').pack(pady=5)
+
+        # Diccionario para almacenar estados de checkboxes
+        check_vars = {}
+
+        # Crear lista con checkboxes
+        for client_id, client_name, _, _, _ in clientes:
+            var = tk.BooleanVar(value=client_config.get(client_name, False))  # Cargar estado previo si existe
+            check_vars[client_name] = var
+            ttk.Checkbutton(frame, text=client_name, variable=var).pack(anchor="w", padx=10, pady=2)
+
+        def save_client_selection():
+            """
+            Guarda el estado de los checkboxes en un archivo JSON.
+            """
+            new_config = {name: var.get() for name, var in check_vars.items()}
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(new_config, f, indent=4)
+            messagebox.showinfo("Guardado", "Configuración guardada correctamente.")
+            window.destroy()
+
+        # Botón de guardar
+        ttk.Button(frame, text="Guardar", command=save_client_selection, style='GreenSuccess.TButton').pack(pady=10)
+
+        # Hacer la ventana modal
+        window.transient(self)
+        window.grab_set()
+        self.wait_window(window)
+
+    def send_mails_filtered(self):
+        """
+        Envía correos solo a los clientes seleccionados en la configuración.
+        """
+        config_file = "clientes_config.json"
+
+        # Cargar configuración de clientes con checkbox
+        if os.path.exists(config_file):
+            with open(config_file, "r", encoding="utf-8") as f:
+                client_config = json.load(f)
+        else:
+            messagebox.showerror("Error",
+                                 "No se encontró la configuración de clientes. Configura primero la selección.")
+            return
+
+        # Obtener lista de clientes desde la BD
+        clientes_con_correo = [
+            (client_id, nombre, correo, correo_cc, correo_bcc)
+            for (client_id, nombre, correo, correo_cc, correo_bcc) in self.db.get_all_clients()
+            if correo and client_config.get(nombre, False)  # Solo incluir si está seleccionado
+        ]
+
+        if not clientes_con_correo:
+            messagebox.showwarning("Advertencia", "No hay clientes seleccionados para recibir correos.")
+            return
+
+        errores_envio = []
+        enviados_exitosamente = []
+        template = self.config_manager.get_email_body_template()
+
+        # Obtener fecha actual para reemplazar en la plantilla
+        current_date = datetime.now().strftime("%d/%m/%Y")
+
+        for client_id, cliente, correo, correo_cc, correo_bcc in clientes_con_correo:
+            archivo_path = self.processor.get_client_file(cliente)
+            if archivo_path:
+                # Personalizar plantilla de correo
+                cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
+                cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)
+
+                asunto = f"Reporte para {cliente}"
+
+                # Enviar correo
+                success, msg = self.email_sender.send_email(
+                    to_email=correo,
+                    subject=asunto,
+                    html_content=cuerpo_html,
+                    attachment_path=archivo_path,
+                    cc_emails=correo_cc,
+                    bcc_emails=correo_bcc
+                )
+
+                if success:
+                    enviados_exitosamente.append(cliente)
+                else:
+                    errores_envio.append(f"Error al enviar a '{cliente}': {msg}")
+
+        if enviados_exitosamente:
+            messagebox.showinfo("Éxito", f"Reportes enviados a: {', '.join(enviados_exitosamente)}")
+
+        if errores_envio:
+            messagebox.showerror("Errores de Envío", "\n".join(errores_envio))
+
+
 
     def ask_yes_no_custom(self, title: str, message: str) -> bool:
         """
