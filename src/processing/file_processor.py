@@ -178,7 +178,7 @@ class FileProcessor:
 
         # Mapeo de clientes y plantillas específicas
         special_clients = {
-            'EPA': 'EPA Report',
+            'OLO': 'OLO Report',
             'ALPEMUSA': 'ALPEMUSA Report',
             'SAN NICOLAS': 'San Nicolas Report',
             'PLASTIMEX': 'Plastimex Report'

@@ -7,7 +7,7 @@ class ClientDatabase:
     Clase para manejar la base de datos de clientes y correos electrónicos.
     """
 
-    def __init__(self, db_path: str = 'data/clientes.db'):
+    def __init__(self, db_path: str = 'data/clientes_key.db'):
         """
         Inicializa la conexión a la base de datos.
 

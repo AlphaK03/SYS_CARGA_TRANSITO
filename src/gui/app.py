@@ -38,7 +38,7 @@ from manager.client_manager import context_menu_add_to_list, show_context_menu
 
 
 from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
-    send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
+    send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients, filter_all_clients
 
 # Microsoft OAuth2 - ASW SAN JOSE
 #MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
@@ -549,7 +549,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.3.7"
+        version = "Versión 2.4.1"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -1158,7 +1158,9 @@ class Application(ttk.Window):
         """
         Ventana de configuración para seleccionar clientes que recibirán correos.
         Guarda el estado en un archivo JSON para persistencia.
+        Incluye opción de 'Seleccionar todos' y un scrollbar para muchos clientes.
         """
+        import json  # Asegúrate de tenerlo importado al principio del archivo
         config_file = "clientes_config.json"
 
         # Cargar configuración previa si existe
@@ -1178,26 +1180,113 @@ class Application(ttk.Window):
         # Crear ventana
         window = tk.Toplevel(self)
         window.title("Seleccionar Clientes para Envío")
+        # Fijar tamaño y evitar que el usuario la redimensione
+        window.geometry("500x500")
+        window.resizable(False, False)
+        # Centramos la ventana (opcional, según tu implementación)
+        # self.center_window(window, 400, 500)  # si deseas usar tu función center_window
 
-        # Ajustar tamaño de la ventana y centrar
-        self.center_window(window, 400, 500)
+        # Frame principal con 3 filas:
+        # [0] Encabezado + "Seleccionar todos"
+        # [1] Zona con scroll para checkboxes
+        # [2] Botón de Guardar
+        main_frame = ttk.Frame(window, padding=10)
+        main_frame.pack(expand=True, fill="both")
 
-        # Frame de contenido
-        frame = ttk.Frame(window, padding=10)
-        frame.pack(expand=True, fill="both")
+        main_frame.rowconfigure(0, weight=0)  # Encabezado, no se expande
+        main_frame.rowconfigure(1, weight=1)  # Área con scroll, ocupa espacio
+        main_frame.rowconfigure(2, weight=0)  # Botón "Guardar", fijo
+        main_frame.columnconfigure(0, weight=1)
 
-        # Etiqueta de instrucciones
-        ttk.Label(frame, text="Selecciona los clientes que recibirán correos:", style='Custom.TLabel').pack(pady=5)
+        # ─────────────────────────────────────────────
+        # FILA 0: Encabezado + Checkbutton "Seleccionar Todos"
+        # ─────────────────────────────────────────────
+        top_frame = ttk.Frame(main_frame)
+        top_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+
+        label_instrucciones = ttk.Label(
+            top_frame,
+            text="Selecciona los clientes que recibirán correos:",
+            style='Custom.TLabel'
+        )
+        label_instrucciones.pack(side="left", anchor="w")
+
+        # Variable y función para "Seleccionar todos"
+        select_all_var = tk.BooleanVar(value=False)
+
+        def on_select_all_changed():
+            new_val = select_all_var.get()
+            # Asignar todos los checkboxes a new_val
+            for var in check_vars.values():
+                var.set(new_val)
+
+        check_all_btn = ttk.Checkbutton(
+            top_frame,
+            text="Seleccionar todos",
+            variable=select_all_var,
+            command=on_select_all_changed
+        )
+        check_all_btn.pack(side="right", anchor="e")
+
+        # ─────────────────────────────────────────────
+        # FILA 1: Área con scrollbar que contendrá las checkboxes
+        # ─────────────────────────────────────────────
+        scroll_frame = ttk.Frame(main_frame)
+        scroll_frame.grid(row=1, column=0, sticky="nsew")
+
+        # Canvas + Scrollbar
+        canvas = tk.Canvas(scroll_frame)
+        canvas.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Frame interno donde colocar las checkboxes
+        checklist_frame = ttk.Frame(canvas)
+        # Crear ventana dentro del canvas
+        canvas_window = canvas.create_window((0, 0), window=checklist_frame, anchor="nw")
+
+        # Para actualizar la región de scroll cuando cambie el contenido
+        def on_checklist_frame_configure(event):
+            canvas.config(scrollregion=canvas.bbox("all"))
+
+        checklist_frame.bind("<Configure>", on_checklist_frame_configure)
+
+        # También, cuando se cambie el tamaño del canvas, reubicar la ventana para no cortar contenido
+        def on_canvas_resize(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", on_canvas_resize)
 
         # Diccionario para almacenar estados de checkboxes
         check_vars = {}
 
-        # Crear lista con checkboxes
-        for client_id, client_name, _, _, _ in clientes:
-            var = tk.BooleanVar(value=client_config.get(client_name, False))  # Cargar estado previo si existe
-            check_vars[client_name] = var
-            ttk.Checkbutton(frame, text=client_name, variable=var).pack(anchor="w", padx=10, pady=2)
+        def on_individual_check():
+            """
+            Evento llamado cuando se modifica un checkbox individual.
+            Si uno se desactiva, desactivamos 'Seleccionar todos'.
+            Si todos están activos, activamos 'Seleccionar todos'.
+            """
+            all_selected = all(var.get() for var in check_vars.values())
+            select_all_var.set(all_selected)
 
+        # Crear checkboxes dentro de checklist_frame
+        for client_id, client_name, _, _, _ in clientes:
+            var = tk.BooleanVar(value=client_config.get(client_name, False))
+            check_vars[client_name] = var
+            c = ttk.Checkbutton(
+                checklist_frame,
+                text=client_name,
+                variable=var,
+                command=on_individual_check  # Para monitorear cambios
+            )
+            c.pack(anchor="w", padx=5, pady=2)
+
+        # ─────────────────────────────────────────────
+        # FILA 2: Botón "Guardar"
+        # ─────────────────────────────────────────────
         def save_client_selection():
             """
             Guarda el estado de los checkboxes en un archivo JSON.
@@ -1208,8 +1297,12 @@ class Application(ttk.Window):
             messagebox.showinfo("Guardado", "Configuración guardada correctamente.")
             window.destroy()
 
-        # Botón de guardar
-        ttk.Button(frame, text="Guardar", command=save_client_selection, style='GreenSuccess.TButton').pack(pady=10)
+        ttk.Button(
+            main_frame,
+            text="Guardar",
+            command=save_client_selection,
+            style='GreenSuccess.TButton'
+        ).grid(row=2, column=0, pady=5, sticky="ew")
 
         # Hacer la ventana modal
         window.transient(self)
@@ -1928,6 +2021,9 @@ class Application(ttk.Window):
 
     def select_all_with_reports_in_all_clients(self):
         select_all_with_reports_in_all_clients(self)
+
+    def filter_all_clients(self):
+        filter_all_clients(self)
 
     def is_sharepoint_session_active(self):
         """

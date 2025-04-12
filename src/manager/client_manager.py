@@ -40,26 +40,51 @@ def on_list_select_por_lista(self, event):
     # Limpiar el Listbox de aliases
     self.listbox_aliases_por_lista.delete(0, tk.END)
 
+
 def load_all_clients(self):
-    # Limpiar los clientes existentes
+    # Obtener todos los clientes de la base de datos
+    # (id, nombre, correo, correo_cc, correo_bcc)
+    self.all_clients_data = self.db.get_all_clients()
+
+    # Aplicar el filtro actual (si lo hubiera) para que se muestren en el Treeview
+    self.filter_all_clients()
+
+
+def filter_all_clients(self):
+    """
+    Aplica el filtro de búsqueda al Treeview de la pestaña 'Todos los Clientes',
+    mostrando solo los clientes que coincidan con el texto en self.search_var.
+    """
+    # 1) Leer el texto de búsqueda y pasarlo a minúsculas para comparación
+    search_text = self.search_var.get().lower().strip()
+
+    # 2) Limpiar el Treeview actual
     for item in self.tree_all_clients.get_children():
         self.tree_all_clients.delete(item)
 
-    # Obtener todos los clientes
-    # Se espera que self.db.get_all_clients() retorne tuplas con:
-    # (id, nombre, correo, correo_cc, correo_bcc)
-    clients = self.db.get_all_clients()
+    # 3) Si no hay clientes cargados en memoria, salir
+    if not hasattr(self, 'all_clients_data'):
+        return
 
-    for client in clients:
+    # 4) Recorrer la lista de todos los clientes que guardamos en load_all_clients
+    for client in self.all_clients_data:
         client_id, client_name, client_email, client_cc, client_bcc = client
-        # Verificar si existe reporte para este cliente
-        tag = 'has_report' if self.processor and self.processor.get_client_file(client_name) else 'no_report'
-        # Insertar todos los 5 campos en el Treeview
-        self.tree_all_clients.insert('', 'end',
-                                     values=(client_id, client_name, client_email, client_cc, client_bcc),
-                                     tags=(tag,))
-    # Limpiar la lista de aliases
-    self.listbox_aliases_all_clients.delete(0, tk.END)
+
+        # Verificar si el search_text está en alguno de los campos
+        # Concatenamos nombre y correos para un filtrado simple.
+        combined_fields = f"{client_name} {client_email} {client_cc} {client_bcc}".lower()
+
+        if search_text in combined_fields:
+            # Verificar si existe reporte (tag)
+            tag = 'has_report' if self.processor and self.processor.get_client_file(client_name) else 'no_report'
+
+            # Insertar el cliente en el Treeview
+            self.tree_all_clients.insert(
+                '', 'end',
+                values=(client_id, client_name, client_email, client_cc, client_bcc),
+                tags=(tag,)
+            )
+
 
 def add_client_to_existing_list(self):
     # Determinar la pestaña activa
@@ -1209,37 +1234,56 @@ def open_client_manager(self):
     )
     boton_borrar_alias.grid(row=1, column=0, padx=0, pady=int(5 * self.scaling_factor), sticky='ew')
 
-    # Pestaña 2: "Todos los Clientes"
+    #Pestaña 2
+    # En la pestaña "Todos los Clientes"
     tab_todos_clientes = ttk.Frame(notebook, padding=int(10 * self.scaling_factor))
     notebook.add(tab_todos_clientes, text="Todos los Clientes")
     notebook.add(tab_por_lista, text="Por Lista")
 
+    # Configurar el grid: la fila 0 se expande para la lista, la fila 1 queda para la barra
+    # Configurar el grid: la fila 0 para la barra, la fila 1 para la lista
     tab_todos_clientes.columnconfigure(0, weight=1)
-    tab_todos_clientes.rowconfigure(0, weight=1)
+    tab_todos_clientes.rowconfigure(0, weight=0)  # la barra de búsqueda no se expande
+    tab_todos_clientes.rowconfigure(1, weight=1)  # la lista se expande
 
-    # Frame para la lista de todos los clientes en "Todos los Clientes"
+    # 1) Barra de búsqueda en row=0
+    frame_search_all = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
+    frame_search_all.grid(row=0, column=0, padx=int(10 * self.scaling_factor),
+                          pady=int(10 * self.scaling_factor), sticky='ew')
+    frame_search_all.columnconfigure(1, weight=1)
+
+    label_search = ttk.Label(frame_search_all, text="Buscar:", style='Custom.TLabel')
+    label_search.grid(row=0, column=0, sticky='w')
+
+    self.search_var = tk.StringVar()
+    entry_search = ttk.Entry(frame_search_all, textvariable=self.search_var)
+    entry_search.grid(row=0, column=1, sticky='ew')
+
+    self.search_var.trace("w", lambda *args: self.filter_all_clients())
+
+    # 2) Frame que contiene la lista (fila=1)
     frame_all_clients = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
-    frame_all_clients.grid(row=0, column=0, padx=int(10 * self.scaling_factor),
+    frame_all_clients.grid(row=1, column=0, padx=int(10 * self.scaling_factor),
                            pady=int(10 * self.scaling_factor), sticky='nsew')
     frame_all_clients.columnconfigure(0, weight=1)
     frame_all_clients.rowconfigure(0, weight=1)
 
-    # Actualizamos la definición de columnas para mostrar los nuevos campos CC y BCC
+    # (El resto se queda igual)
     columns_all = ('ID', 'Nombre', 'Correo', 'Correo CC', 'Correo BCC')
     self.tree_all_clients = ttk.Treeview(
         frame_all_clients,
         columns=columns_all,
         show='headings',
         selectmode='extended',
-        height=10  # Número de filas visibles
+        height=20
     )
 
-    # Configurar los encabezados y las columnas
     self.tree_all_clients.heading('ID', text='ID')
     self.tree_all_clients.heading('Nombre', text='Nombre')
     self.tree_all_clients.heading('Correo', text='Correo')
     self.tree_all_clients.heading('Correo CC', text='Correo CC')
     self.tree_all_clients.heading('Correo BCC', text='Correo BCC')
+
     self.tree_all_clients.column('ID', width=int(50 * self.scaling_factor), anchor='center')
     self.tree_all_clients.column('Nombre', width=int(200 * self.scaling_factor), anchor='w')
     self.tree_all_clients.column('Correo', width=int(250 * self.scaling_factor), anchor='w')
@@ -1251,11 +1295,9 @@ def open_client_manager(self):
     self.tree_all_clients.tag_configure('has_report', background='#ccffcc')
     self.tree_all_clients.tag_configure('no_report', background='#ffcccc')
 
-    # Vincular eventos para la selección y clic derecho en "Todos los Clientes"
     self.tree_all_clients.bind('<<TreeviewSelect>>', self.on_all_client_select)
     self.tree_all_clients.bind("<Button-3>", self.show_context_menu)
 
-    # Scrollbars para la tabla de "Todos los Clientes"
     scrollbar_vertical_all = ttk.Scrollbar(frame_all_clients, orient=tk.VERTICAL, command=self.tree_all_clients.yview)
     scrollbar_vertical_all.grid(row=0, column=1, sticky='ns')
     self.tree_all_clients.configure(yscrollcommand=scrollbar_vertical_all.set)
@@ -1265,11 +1307,13 @@ def open_client_manager(self):
     scrollbar_horizontal_all.grid(row=1, column=0, sticky='ew')
     self.tree_all_clients.configure(xscrollcommand=scrollbar_horizontal_all.set)
 
-    # Panel de botones para gestión de todos los clientes (se mantiene similar, sin cambios en este punto)
+    # Panel de botones para gestión de todos los clientes
     frame_botones_all_clients = ttk.Frame(frame_all_clients, padding=int(10 * self.scaling_factor))
     frame_botones_all_clients.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                                    pady=int(5 * self.scaling_factor), sticky='ew')
     frame_botones_all_clients.columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+
+    # (Tus botones de "Añadir Cliente", "Modificar Cliente", etc.)
 
     boton_anadir_cliente_all = ttk.Button(
         frame_botones_all_clients,
@@ -1325,9 +1369,12 @@ def open_client_manager(self):
     boton_seleccionar_con_reporte.grid(row=0, column=5, padx=int(5 * self.scaling_factor),
                                        pady=int(5 * self.scaling_factor), sticky='ew')
 
+
+
+
     # Frame para gestión de aliases en "Todos los Clientes"
     frame_aliases_all = ttk.Frame(tab_todos_clientes, padding=int(10 * self.scaling_factor))
-    frame_aliases_all.grid(row=1, column=0, padx=int(10 * self.scaling_factor),
+    frame_aliases_all.grid(row=2, column=0, padx=int(10 * self.scaling_factor),
                            pady=int(10 * self.scaling_factor), sticky='nsew')
     frame_aliases_all.columnconfigure(0, weight=1)
     frame_aliases_all.rowconfigure(0, weight=1)
@@ -1339,6 +1386,8 @@ def open_client_manager(self):
     )
     label_aliases_all.grid(row=0, column=0, pady=int(5 * self.scaling_factor), sticky='w')
 
+
+
     # Frame que contiene la listbox y los botones de aliases
     frame_aliases_content_all = ttk.Frame(frame_aliases_all)
     frame_aliases_content_all.grid(row=1, column=0, sticky='nsew')
@@ -1348,7 +1397,7 @@ def open_client_manager(self):
     # Lista para mostrar los aliases del cliente seleccionado en "Todos los Clientes"
     self.listbox_aliases_all_clients = tk.Listbox(
         frame_aliases_content_all,
-        height=15  # Establecer la altura en 15 filas visibles
+        height=5  # Establecer la altura en 15 filas visibles
     )
     self.listbox_aliases_all_clients.grid(row=0, column=0, sticky='nsew')
     self.listbox_aliases_all_clients.bind("<Double-1>", self.edit_alias_inline)
