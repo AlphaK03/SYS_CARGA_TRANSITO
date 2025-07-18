@@ -40,9 +40,8 @@ from manager.client_manager import context_menu_add_to_list, show_context_menu
 from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
     send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients
 
-# Microsoft OAuth2 - ASW SAN JOSE
-MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
-#MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
+# Microsoft OAuth2
+MICROSOFT_CLIENT_ID = "*********************************"
 MICROSOFT_TENANT_ID = "common"
 
 # Establecer AppUserModelID
@@ -78,7 +77,7 @@ class Application(ttk.Window):
         super().__init__(themename="flatly")  # Mantener el tema
         self.title("CHC REPORTES")
 
-        # 📌 Ruta del icono
+        # Ruta del icono
         if getattr(sys, 'frozen', False):
             # Si el programa está compilado en un .exe con PyInstaller
             base_path = sys._MEIPASS
@@ -88,11 +87,11 @@ class Application(ttk.Window):
 
         icon_path = os.path.join(base_path, "resources", "icono.ico")
 
-        # 📌 Establecer el icono de la ventana
+        # Establecer el icono de la ventana
         if os.path.exists(icon_path):
             self.iconbitmap(icon_path)
         else:
-            print(f"⚠️ Advertencia: No se encontró el icono en {icon_path}")
+            print(f" Advertencia: No se encontró el icono en {icon_path}")
 
         # Inicializar la etiqueta de progreso usando grid
         self.progress_label = ttk.Label(self, text="", style='Info.TLabel')
@@ -215,10 +214,10 @@ class Application(ttk.Window):
                 result = self.sharepoint_msal_app.acquire_token_silent(scopes, account=accounts[0])
 
             if result and "access_token" in result:
-                print("✅ Token obtenido de caché")
+                print("Token obtenido de caché")
                 return result["access_token"]
 
-            print("🔄 No se encontró token en caché. Iniciando autenticación interactiva...")
+            print("No se encontró token en caché. Iniciando autenticación interactiva...")
 
             # Autenticación interactiva en un hilo separado
             def acquire_token():
@@ -242,8 +241,8 @@ class Application(ttk.Window):
                 # Si se obtuvo un token, almacenarlo en caché
             if result and "access_token" in result:
                 self.sharepoint_token_cache.save(
-                    self.sharepoint_msal_app)  # 📌 Guardar token en caché después de autenticación
-                print("✅ Token guardado en caché correctamente")
+                    self.sharepoint_msal_app)  # Guardar token en caché después de autenticación
+                print(" Token guardado en caché correctamente")
                 return result["access_token"]
             else:
                 error_message = result.get("error_description",
@@ -465,7 +464,7 @@ class Application(ttk.Window):
             return None  # No hay cuentas autenticadas
 
         # Intentar adquirir un token silencioso para obtener la información del usuario
-        scopes = ['User.Read']  # Asegúrate de que este scope está permitido
+        scopes = ['User.Read'] 
         logging.info("Intentando adquirir un token de acceso en silencio.")
         result = self.email_msal_app.acquire_token_silent(scopes, account=accounts[0])
 
@@ -646,7 +645,7 @@ class Application(ttk.Window):
             style (str): Estilo de la etiqueta. Valores posibles: 'Info.TLabel', 'Success.TLabel', etc.
         """
         self.progress_label.config(style=style, text=message)
-        self.update_idletasks()  # Actualiza la interfaz para reflejar el cambio inmediatamente
+        self.update_idletasks() 
 
     def open_config_window(self):
         """
@@ -933,7 +932,7 @@ class Application(ttk.Window):
             top_frame,
             text="Insertar Última Fecha",
             command=insert_last_update_placeholder,
-            style='YellowWarning.TButton'  # 🔹 Usa un estilo amarillo para destacar este botón
+            style='YellowWarning.TButton'  # Usa un estilo amarillo para destacar este botón
         )
         last_update_button.pack(side='left', padx=5)
 
@@ -1249,7 +1248,7 @@ class Application(ttk.Window):
                     # Reemplazar los marcadores en la plantilla del correo
                     cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
                     cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}",
-                                                      current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+                                                      current_date)  # Fecha del sistema (dd/mm/yyyy)
 
                     asunto = f"Reporte para {cliente}"
 
@@ -1678,7 +1677,7 @@ class Application(ttk.Window):
 
             # Reemplazo de variables en la plantilla del correo
             cuerpo_html = template.replace("{CLIENT_NAME}", cliente_nombre)
-            cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+            cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)  # Fecha del sistema (dd/mm/yyyy)
 
             asunto = f"Reporte para {cliente_nombre}"
 
