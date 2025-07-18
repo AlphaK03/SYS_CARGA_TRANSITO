@@ -143,8 +143,8 @@ class FileProcessor:
         today_date = datetime.now().strftime("%d-%m-%Y")
 
         # Obtener la ruta del directorio raíz del proyecto (un nivel arriba de `src`)
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # 📌 Sube un nivel desde `src`
-        historico_dir = os.path.join(root_dir, "histórico")  # 📌 `historico/` estará al lado de `data/`
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  #  Sube un nivel desde `src`
+        historico_dir = os.path.join(root_dir, "histórico")  #  `historico/` estará al lado de `data/`
 
         # Crear la carpeta "histórico" si no existe
         os.makedirs(historico_dir, exist_ok=True)
@@ -295,11 +295,11 @@ class FileProcessor:
 
         # 3) Verificar si el archivo ya existe y es válido
         if os.path.exists(self.local_file_path):
-            if os.path.getsize(self.local_file_path) > 1024:  # 🔹 Verifica que el archivo tenga contenido (más de 1 KB)
-                print(f"✅ Archivo ya existente encontrado en: {self.local_file_path}")
+            if os.path.getsize(self.local_file_path) > 1024:  # Verifica que el archivo tenga contenido (más de 1 KB)
+                print(f" Archivo ya existente encontrado en: {self.local_file_path}")
                 return self.local_file_path  # Devolver el archivo sin descargarlo nuevamente
             else:
-                print(f"⚠️ Archivo encontrado pero inválido (posible error previo en descarga). Eliminando...")
+                print(f" Archivo encontrado pero inválido (posible error previo en descarga). Eliminando...")
                 os.remove(self.local_file_path)  # Eliminar archivo vacío o corrupto
 
         # 4) Escapar la URL para caracteres especiales
@@ -318,10 +318,10 @@ class FileProcessor:
             with open(self.local_file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"📥 Archivo descargado en: {self.local_file_path}")
+            print(f" Archivo descargado en: {self.local_file_path}")
             return self.local_file_path
         else:
-            print(f"❌ Error al descargar: {response.status_code} - {response.text}")
+            print(f" Error al descargar: {response.status_code} - {response.text}")
             messagebox.showerror("Error de descarga", "No se pudo descargar el archivo de SharePoint.")
 
             # 7) Opción de permitir al usuario seleccionar el archivo manualmente
@@ -339,7 +339,7 @@ class FileProcessor:
                     try:
                         # Copiar el archivo seleccionado en la carpeta destino
                         shutil.copy(selected_file_path, self.local_file_path)
-                        print(f"📂 Archivo copiado a: {self.local_file_path}")
+                        print(f" Archivo copiado a: {self.local_file_path}")
                         return self.local_file_path
                     except Exception as e:
                         messagebox.showerror("Error", f"No se pudo copiar el archivo: {e}")
