@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime
 import threading
+from typing import Optional
 from urllib.parse import urlparse, parse_qs
 import ttkbootstrap as ttk
 import tkinter as tk
@@ -549,7 +550,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.4.1"
+        version = "Versión 2.4.3"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -695,66 +696,65 @@ class Application(ttk.Window):
             auth_frame.grid(row=0, column=0, sticky='nsew')
             auth_frame.columnconfigure(0, weight=1)
 
-            etiqueta_info = ttk.Label(
+            ttk.Label(
                 auth_frame,
                 text="Información de Autenticación de la Cuenta",
                 style='CustomTitle.TLabel'
-            )
-            etiqueta_info.grid(row=0, column=0, pady=(0, 10), sticky='w')
+            ).grid(row=0, column=0, pady=(0, 10), sticky='w')
 
-            separador = ttk.Separator(auth_frame, orient='horizontal')
-            separador.grid(row=1, column=0, sticky='ew', pady=(0, 10))
+            ttk.Separator(auth_frame, orient='horizontal').grid(row=1, column=0, sticky='ew', pady=(0, 10))
 
             self.etiqueta_email_actual = ttk.Label(auth_frame, text="Cargando información...",
                                                    style='CustomValue.TLabel')
-            self.etiqueta_email_actual.grid(row=2, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
-                                            sticky='w')
+            self.etiqueta_email_actual.grid(row=2, column=0, padx=5, pady=5, sticky='w')
 
             self.etiqueta_nombre_value = ttk.Label(auth_frame, text="", style='CustomValue.TLabel')
-            self.etiqueta_nombre_value.grid(row=3, column=0, padx=int(5 * scaling_factor), pady=int(5 * scaling_factor),
-                                            sticky='w')
+            self.etiqueta_nombre_value.grid(row=3, column=0, padx=5, pady=5, sticky='w')
 
-            #logger.debug("Obteniendo información del usuario autenticado.")
+            # 🔥 Mostrar Alias Predeterminado Actual
+            default_alias = self.config_manager.get_default_sender()
+            if default_alias:
+                alias_text = f"Alias Predeterminado: {default_alias}"
+            else:
+                alias_text = "Alias Predeterminado: No configurado"
+
+            self.etiqueta_alias_predeterminado = ttk.Label(auth_frame, text=alias_text, style='CustomValue.TLabel')
+            self.etiqueta_alias_predeterminado.grid(row=4, column=0, padx=5, pady=5, sticky='w')
+
+            # Cargar información del usuario
             user_info = self.get_current_authenticated_user()
-
             if user_info:
                 email_autenticado = user_info['email']
                 nombre_usuario = user_info['name']
                 self.etiqueta_email_actual.config(text=f"Cuenta Autenticada: {email_autenticado}")
                 self.etiqueta_nombre_value.config(text=f"Usuario: {nombre_usuario}")
-                #logger.info(f"Usuario autenticado: {email_autenticado}, Nombre: {nombre_usuario}")
             else:
                 self.etiqueta_email_actual.config(text="NO AUTENTICADO")
                 self.etiqueta_nombre_value.config(text="")
-                #logger.warning("No se encontró información del usuario autenticado.")
 
             button_frame = ttk.Frame(config_window, padding=(20, 10))
             button_frame.grid(row=2, column=0, sticky='ew')
             button_frame.columnconfigure(0, weight=1)
 
+            # -- ESTILOS
             style = ttk.Style()
             style.configure('CustomTitle.TLabel', font=('Helvetica', 16, 'bold'), foreground='#333333')
-            style.configure('CustomSubtitle.TLabel', font=('Helvetica', 12, 'bold'), foreground='#555555')
             style.configure('CustomValue.TLabel', font=('Helvetica', 12), foreground='#000000')
-            style.configure('CustomError.TLabel', font=('Helvetica', 12, 'bold'), foreground='red')
+            style.configure('Warning.TButton', foreground='white',
+                            background='#FFA500')  # Color naranja para el botón warning
 
+            # Funciones de botones
             def iniciar_oauth2():
-                """
-                Solo Microsoft, sin Google
-                """
-                #logger.debug("Iniciando el proceso de autenticación Microsoft OAuth2.")
                 try:
                     tenant_id = "common"
-                    authority = f'https://login.microsoftonline.com/{tenant_id}' if tenant_id else 'https://login.microsoftonline.com/common'
+                    authority = f'https://login.microsoftonline.com/{tenant_id}'
                     redirect_uri = "http://localhost:62190/"
                     scopes = EmailSender.MS_SCOPES
 
                     app = self.email_msal_app
                     result = app.acquire_token_silent(scopes, account=None)
-                    #logger.debug("Intentando adquirir token silencioso para Microsoft.")
 
                     if not result:
-                        #logger.debug("No se encontró token en caché, iniciando flujo de autenticación interactivo.")
                         auth_url = app.get_authorization_request_url(
                             scopes=scopes,
                             redirect_uri=redirect_uri,
@@ -763,7 +763,6 @@ class Application(ttk.Window):
                         )
                         webbrowser.open(auth_url)
                         auth_code = []
-                        #logger.debug("Abierta la URL de autenticación en el navegador.")
 
                         class AuthHandler(http.server.SimpleHTTPRequestHandler):
                             def __init__(self, *args, auth_code_container, **kwargs):
@@ -780,33 +779,21 @@ class Application(ttk.Window):
                                     self.send_header('Content-type', 'text/html; charset=utf-8')
                                     self.end_headers()
                                     self.wfile.write(html_content.encode('utf-8'))
-                                    #logger.debug("Código de autorización recibido de Microsoft.")
-                                else:
-                                    html_content = '<html><body><h1>Error en la autenticación.</h1></body></html>'
-                                    self.send_response(400)
-                                    self.send_header('Content-type', 'text/html; charset=utf-8')
-                                    self.end_headers()
-                                    self.wfile.write(html_content.encode('utf-8'))
-                                    #logger.error("Error en la autenticación de Microsoft: Código no encontrado.")
 
                         with socketserver.TCPServer(("", 62190), lambda *args, **kwargs: AuthHandler(*args,
                                                                                                      auth_code_container=auth_code,
                                                                                                      **kwargs)) as httpd:
-                            #logger.debug("Servidor HTTP iniciado para callback de autenticación Microsoft.")
                             server_thread = threading.Thread(target=httpd.handle_request)
                             server_thread.start()
                             server_thread.join()
-                            #logger.debug("Servidor HTTP cerrado después de la respuesta.")
 
                         if not auth_code:
-                            #logger.error("No se recibió el código de autorización de Microsoft.")
                             messagebox.showerror("Error", "No se recibió el código de autorización de Microsoft.")
                             return
 
                         result = app.acquire_token_by_authorization_code(auth_code[0], scopes=scopes,
                                                                          redirect_uri=redirect_uri)
                         self.email_token_cache.save(app)
-                        #logger.debug("Token de Microsoft adquirido y cacheado correctamente.")
 
                     if "access_token" in result:
                         user_info = self.get_current_authenticated_user()
@@ -815,39 +802,44 @@ class Application(ttk.Window):
                             nombre_usuario = user_info['name']
                             self.config_manager.set_email(email_autenticado)
                             self.etiqueta_email_actual.config(text=f"Cuenta autenticada: {email_autenticado}")
-                            self.etiqueta_nombre_value.config(text=f"Nombre de Usuario: {nombre_usuario}")
-                            #logger.info(f"Autenticación de Microsoft exitosa para el email: {email_autenticado}")
+                            self.etiqueta_nombre_value.config(text=f"Usuario: {nombre_usuario}")
                             messagebox.showinfo("Éxito", "Autenticación de Microsoft exitosa.")
                         else:
-                            #logger.error("No se pudo obtener la información del usuario de Microsoft.")
                             messagebox.showerror("Error", "No se pudo obtener la información del usuario.")
                     else:
                         error_description = result.get('error_description', 'No se pudo obtener el token de acceso.')
-                        #logger.error(f"Error al adquirir el token de acceso de Microsoft: {error_description}")
                         messagebox.showerror("Error", f"Error al adquirir el token de acceso: {error_description}")
 
                 except Exception as e:
-                    #logger.exception("Error durante la autenticación OAuth2 con Microsoft.")
                     messagebox.showerror("Error", f"Error durante la autenticación: {str(e)}")
 
             def cerrar_sesion():
-                #logger.debug("Iniciando el proceso de cierre de sesión.")
                 try:
                     self.config_manager.clear_credentials()
                     self.email_token_cache.clear_cache()
                     self.sharepoint_token_cache.clear_cache()
                     self.etiqueta_email_actual.config(text="NO AUTENTICADO")
                     self.etiqueta_nombre_value.config(text="")
-                    #logger.info("Credenciales y cachés limpiados. Usuario desautenticado.")
-
                     messagebox.showinfo("Cierre de sesión", "Sesión cerrada. Por favor, vuelve a iniciar sesión.")
                     config_window.destroy()
-                    #logger.debug("Ventana de configuración cerrada. Reabriendo para reflejar estado desautenticado.")
                     self.open_config_window()
                 except Exception as e:
-                    #logger.exception("No se pudo cerrar sesión correctamente.")
                     messagebox.showerror("Error", f"No se pudo cerrar sesión: {str(e)}")
 
+            def borrar_alias_predeterminado():
+                confirm = messagebox.askyesno("Confirmar", "¿Deseas borrar el alias predeterminado?")
+                if confirm:
+                    self.config_manager.clear_default_sender()
+                    self.etiqueta_alias_predeterminado.config(text="Alias Predeterminado: No configurado")
+                    messagebox.showinfo("Éxito", "Alias predeterminado eliminado.")
+
+            def cambiar_alias_predeterminado():
+                nuevo_alias = self.select_sender_alias()
+                if nuevo_alias:
+                    self.etiqueta_alias_predeterminado.config(text=f"Alias Predeterminado: {nuevo_alias}")
+                    messagebox.showinfo("Éxito", f"Alias predeterminado cambiado a: {nuevo_alias}")
+
+            # -- BOTONES
             self.boton_autenticar = ttk.Button(
                 button_frame,
                 text="Iniciar Sesión con Microsoft",
@@ -866,12 +858,29 @@ class Application(ttk.Window):
             )
             self.boton_cerrar_sesion.grid(row=1, column=0, pady=(0, 10), sticky='ew')
 
+            boton_borrar_alias = ttk.Button(
+                button_frame,
+                text="Borrar Alias Predeterminado",
+                command=borrar_alias_predeterminado,
+                style='Warning.TButton',
+                width=25
+            )
+            boton_borrar_alias.grid(row=2, column=0, pady=(0, 10), sticky='ew')
+
+            boton_cambiar_alias = ttk.Button(
+                button_frame,
+                text="Cambiar Alias Predeterminado",
+                command=cambiar_alias_predeterminado,
+                style='BlueZodiac.TButton',
+                width=25
+            )
+            boton_cambiar_alias.grid(row=3, column=0, pady=(0, 10), sticky='ew')
+
             config_window.transient(self)
             config_window.grab_set()
             self.wait_window(config_window)
 
         except Exception as e:
-            #logger.exception("Error al abrir la ventana de configuración.")
             messagebox.showerror("Error", f"No se pudo abrir la ventana de configuración: {str(e)}")
 
     def open_email_template_settings_window(self):
@@ -1315,13 +1324,21 @@ class Application(ttk.Window):
         """
         config_file = "clientes_config.json"
 
-        # Cargar configuración de clientes con checkbox
         if os.path.exists(config_file):
             with open(config_file, "r", encoding="utf-8") as f:
                 client_config = json.load(f)
         else:
             messagebox.showerror("Error",
                                  "No se encontró la configuración de clientes. Configura primero la selección.")
+            return
+
+        # 📌 Obtener el alias FROM para enviar
+        from_email = self.config_manager.get_default_sender()
+        if not from_email:
+            from_email = self.select_sender_alias()
+
+        if not from_email:
+            self.update_progress("Envío cancelado por el usuario.", style='Warning.TLabel')
             return
 
         # Obtener lista de clientes desde la BD
@@ -1345,20 +1362,20 @@ class Application(ttk.Window):
         for client_id, cliente, correo, correo_cc, correo_bcc in clientes_con_correo:
             archivo_path = self.processor.get_client_file(cliente)
             if archivo_path:
-                # Personalizar plantilla de correo
                 cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
                 cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)
 
                 asunto = f"Reporte para {cliente}"
 
-                # Enviar correo
+                # 🔥 Aquí PASAMOS el from_email
                 success, msg = self.email_sender.send_email(
                     to_email=correo,
                     subject=asunto,
                     html_content=cuerpo_html,
                     attachment_path=archivo_path,
                     cc_emails=correo_cc,
-                    bcc_emails=correo_bcc
+                    bcc_emails=correo_bcc,
+                    from_email=from_email  # 👈 alias personalizado
                 )
 
                 if success:
@@ -1371,8 +1388,6 @@ class Application(ttk.Window):
 
         if errores_envio:
             messagebox.showerror("Errores de Envío", "\n".join(errores_envio))
-
-
 
     def ask_yes_no_custom(self, title: str, message: str) -> bool:
         """
@@ -1532,12 +1547,22 @@ class Application(ttk.Window):
                 self.update_progress("Primero debes generar los reportes.", style='Warning.TLabel')
                 return
 
+            # 📌 Obtener el alias FROM para enviar
+            from_email = self.config_manager.get_default_sender()
+            if not from_email:
+                from_email = self.select_sender_alias()
+
+            if not from_email:
+                self.update_progress("Envío cancelado por el usuario.", style='Warning.TLabel')
+                return
+
             # Extrae todos los campos: ID, Nombre, Correo, Correo CC y Correo BCC
             clientes_con_correo = [
                 (client_id, nombre, correo, correo_cc, correo_bcc)
                 for (client_id, nombre, correo, correo_cc, correo_bcc) in self.db.get_clients_by_list(list_id)
                 if correo and correo.lower().strip() != '(correo sin definir)'
             ]
+
             if not clientes_con_correo:
                 self.update_progress("", style='Info.TLabel')
                 self.update_progress("No hay clientes con correos asociados para enviar.", style='Warning.TLabel')
@@ -1546,28 +1571,27 @@ class Application(ttk.Window):
             # Obtener la plantilla del correo
             template = self.config_manager.get_email_body_template()
 
-            # Obtener la fecha del día actual en formato dd/mm/yyyy
+            # Obtener la fecha actual
             current_date = datetime.now().strftime("%d/%m/%Y")
 
             errores_envio = []
             for client_id, cliente, correo, correo_cc, correo_bcc in clientes_con_correo:
                 archivo_path = self.processor.get_client_file(cliente)
                 if archivo_path:
-                    # Reemplazar los marcadores en la plantilla del correo
                     cuerpo_html = template.replace("{CLIENT_NAME}", cliente)
-                    cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}",
-                                                      current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+                    cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)
 
                     asunto = f"Reporte para {cliente}"
 
-                    # Enviar el correo
+                    # 🔥 Aquí PASAMOS el from_email
                     success, msg = self.email_sender.send_email(
                         to_email=correo,
                         subject=asunto,
                         html_content=cuerpo_html,
                         attachment_path=archivo_path,
                         cc_emails=correo_cc,
-                        bcc_emails=correo_bcc
+                        bcc_emails=correo_bcc,
+                        from_email=from_email  # 👈 alias seleccionado
                     )
 
                     if not success:
@@ -1960,13 +1984,20 @@ class Application(ttk.Window):
         enviados_exitosamente = []
         template = self.config_manager.get_email_body_template()
 
+        # 📌 Obtener el alias FROM para enviar
+        from_email = self.config_manager.get_default_sender()
+        if not from_email:
+            from_email = self.select_sender_alias()
+
+        if not from_email:
+            self.after(0, lambda: self.update_progress("Envío cancelado por el usuario.", style='Warning.TLabel'))
+            return
+
         # Obtener la fecha del día actual en formato dd/mm/yyyy
         current_date = datetime.now().strftime("%d/%m/%Y")
 
         for item in selected_items:
             client_values = tree.item(item, 'values')
-            # Se asume que el Treeview tiene al menos 5 columnas:
-            # [ID, Nombre, Correo, Correo CC, Correo BCC]
             client_id = int(client_values[0])
             cliente_nombre = client_values[1]
             cliente_correo = client_values[2]
@@ -1983,20 +2014,21 @@ class Application(ttk.Window):
                     f"No se encontró el reporte para el cliente '{cliente_nombre}'. Debe generar primero los reportes.")
                 continue
 
-            # Reemplazo de variables en la plantilla del correo
+            # Personalizar cuerpo del correo
             cuerpo_html = template.replace("{CLIENT_NAME}", cliente_nombre)
-            cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)  # 📌 Fecha del sistema (dd/mm/yyyy)
+            cuerpo_html = cuerpo_html.replace("{LAST_UPDATE_DATE}", current_date)
 
             asunto = f"Reporte para {cliente_nombre}"
 
-            # Enviar correo con CC y BCC
+            # 🔥 Aquí PASAMOS el from_email
             success, msg = self.email_sender.send_email(
                 to_email=cliente_correo,
                 subject=asunto,
                 html_content=cuerpo_html,
                 attachment_path=reporte_path,
                 cc_emails=cliente_correo_cc,
-                bcc_emails=cliente_correo_bcc
+                bcc_emails=cliente_correo_bcc,
+                from_email=from_email  # 👈 alias personalizado
             )
 
             if success:
@@ -2024,6 +2056,140 @@ class Application(ttk.Window):
 
     def filter_all_clients(self):
         filter_all_clients(self)
+
+    def get_user_aliases(self) -> list[str]:
+        """
+        Consulta Microsoft Graph para obtener todos los alias (proxyAddresses) del usuario autenticado.
+        """
+        access_token = self.get_email_access_token()
+        if not access_token:
+            return []
+
+        try:
+            headers = {'Authorization': f'Bearer {access_token}'}
+            # Cambiamos la URL para pedir solo proxyAddresses
+            response = requests.get('https://graph.microsoft.com/v1.0/me?$select=proxyAddresses', headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            proxy_addresses = data.get('proxyAddresses', [])
+
+            # Solo extraer las direcciones válidas de tipo SMTP
+            aliases = []
+            for address in proxy_addresses:
+                if address.lower().startswith("smtp:"):  # SMTP (minúscula) es el alias secundario
+                    aliases.append(address[5:])  # Remover el prefijo "smtp:"
+
+            return aliases
+        except Exception as e:
+            print(f"Error al obtener aliases: {e}")
+            return []
+
+    def select_sender_alias(self) -> Optional[str]:
+        from tkinter import StringVar, BooleanVar
+
+        def abrir_ventana_alias():
+            alias_window = tk.Toplevel(self)
+            alias_window.title("Seleccionar Alias de Envío")
+            self.center_window(alias_window, 450, 350)
+
+            # Cargar alias
+            dynamic_aliases = self.get_user_aliases()
+            manual_aliases = self.config_manager.get_manual_aliases()
+            all_aliases = list(set(dynamic_aliases + manual_aliases))
+
+            if not all_aliases:
+                user_info = self.get_current_authenticated_user()
+                if user_info:
+                    all_aliases = [user_info['email']]
+                else:
+                    return None
+
+            selected_alias = StringVar(value=all_aliases[0])
+            remember_default = BooleanVar()
+
+            ttk.Label(alias_window, text="Seleccione el alias para enviar los correos:", style='Custom.TLabel').pack(
+                pady=10)
+
+            radio_frame = ttk.Frame(alias_window)
+            radio_frame.pack(pady=5)
+
+            def eliminar_alias_manual(alias_a_eliminar):
+                confirm = messagebox.askyesno("Confirmar", f"¿Eliminar alias '{alias_a_eliminar}'?")
+                if confirm:
+                    manual_aliases = self.config_manager.get_manual_aliases()
+                    if alias_a_eliminar in manual_aliases:
+                        manual_aliases.remove(alias_a_eliminar)
+                        self.config_manager.config["manual_aliases"] = manual_aliases
+                        self.config_manager.save_config()
+                        alias_window.destroy()
+                        self.after(100, abrir_ventana_alias)  # Recargar ventana
+
+            for alias in all_aliases:
+                frame_alias = ttk.Frame(radio_frame)
+                frame_alias.pack(anchor='w', pady=2, padx=20, fill='x')
+
+                ttk.Radiobutton(frame_alias, text=alias, variable=selected_alias, value=alias).pack(side='left',
+                                                                                                    anchor='w')
+
+                # Solo mostrar botón de borrar para alias manuales
+                if alias in manual_aliases:
+                    boton_eliminar = ttk.Button(
+                        frame_alias,
+                        text="X",
+                        width=2,
+                        style='RedColor.TButton',
+                        command=lambda a=alias: eliminar_alias_manual(a)
+                    )
+                    boton_eliminar.pack(side='left', padx=5)
+
+            # Entrada para agregar nuevo alias
+            add_frame = ttk.Frame(alias_window)
+            add_frame.pack(pady=10)
+
+            new_alias_entry = ttk.Entry(add_frame, width=30)
+            new_alias_entry.grid(row=0, column=0, padx=(5, 5))
+
+            def agregar_alias_manual():
+                nuevo_alias = new_alias_entry.get().strip()
+                if nuevo_alias and nuevo_alias not in all_aliases:
+                    self.config_manager.add_manual_alias(nuevo_alias)
+                    alias_window.destroy()
+                    self.after(100, abrir_ventana_alias)  # Recargar ventana
+                else:
+                    messagebox.showwarning("Advertencia", "El alias ya existe o es inválido.")
+
+            ttk.Button(add_frame, text="Agregar Alias", command=agregar_alias_manual, style='BlueZodiac.TButton').grid(
+                row=0, column=1)
+
+            ttk.Checkbutton(alias_window, text="Usar como predeterminado", variable=remember_default).pack(pady=10)
+
+            frame_btns = ttk.Frame(alias_window)
+            frame_btns.pack(pady=10)
+
+            result = {"alias": None}
+
+            def confirmar():
+                if selected_alias.get():
+                    result["alias"] = selected_alias.get()
+                    if remember_default.get():
+                        self.config_manager.set_default_sender(result["alias"])
+                    alias_window.destroy()
+
+            def cancelar():
+                alias_window.destroy()
+
+            ttk.Button(frame_btns, text="Confirmar", command=confirmar, style='GreenSuccess.TButton').pack(side='left',
+                                                                                                           padx=10)
+            ttk.Button(frame_btns, text="Cancelar", command=cancelar, style='RedColor.TButton').pack(side='right',
+                                                                                                     padx=10)
+
+            alias_window.transient(self)
+            alias_window.grab_set()
+            self.wait_window(alias_window)
+
+            return result["alias"]
+
+        return abrir_ventana_alias()
 
     def is_sharepoint_session_active(self):
         """

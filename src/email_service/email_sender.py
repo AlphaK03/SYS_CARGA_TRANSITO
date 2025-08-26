@@ -84,7 +84,8 @@ class EmailSender:
             html_content: str,
             attachment_path: str,
             cc_emails: str = "",
-            bcc_emails: str = ""
+            bcc_emails: str = "",
+            from_email: str = None  # <-- Nuevo parámetro
     ) -> Tuple[bool, str]:
         """
         Envía un correo utilizando Microsoft Graph.
@@ -92,7 +93,7 @@ class EmailSender:
         Se aceptan parámetros opcionales cc_emails y bcc_emails (como cadena con correos separados por comas).
         """
         try:
-            return self._send_email_microsoft(to_email, subject, html_content, attachment_path, cc_emails, bcc_emails)
+            return self._send_email_microsoft(to_email, subject, html_content, attachment_path, cc_emails, bcc_emails, from_email)
         except Exception as e:
             logging.error(f"Error al enviar el correo: {str(e)}")
             return False, f"Error al enviar el correo: {str(e)}"
@@ -104,7 +105,8 @@ class EmailSender:
             html_content: str,
             attachment_path: str,
             cc_emails: str = "",
-            bcc_emails: str = ""
+            bcc_emails: str = "",
+            from_email: str = None  # <-- Nuevo
     ) -> Tuple[bool, str]:
         """
         Envía un correo usando Microsoft Graph.
@@ -140,6 +142,10 @@ class EmailSender:
                 },
                 "saveToSentItems": "true"
             }
+
+            # 👇 Agregar el campo From si se especificó
+            if from_email:
+                message["message"]["from"] = {"emailAddress": {"address": from_email}}
 
             # Agregar ccRecipients si se proporcionan
             if cc_emails:

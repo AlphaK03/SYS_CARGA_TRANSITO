@@ -154,3 +154,24 @@ class ConfigManager:
         self.config.pop('last_update_date', None)
         self.save_config()
 
+    def get_default_sender(self) -> str:
+        return self.config.get("default_sender", "")
+
+    def set_default_sender(self, email: str):
+        self.config["default_sender"] = email
+        self.save_config()
+
+    def get_manual_aliases(self) -> list[str]:
+        return self.config.get("manual_aliases", [])
+
+    def add_manual_alias(self, alias: str):
+        aliases = self.get_manual_aliases()
+        if alias not in aliases:
+            aliases.append(alias)
+            self.config["manual_aliases"] = aliases
+            self.save_config()
+
+    def clear_default_sender(self):
+        if "default_sender" in self.config:
+            del self.config["default_sender"]
+            self.save_config()

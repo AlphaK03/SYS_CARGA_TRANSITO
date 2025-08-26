@@ -139,44 +139,42 @@ class FileProcessor:
             List[str]: Lista de nombres de clientes procesados.
         """
 
-        # Obtener la fecha actual en formato DD-MM-YYYY
+        import unicodedata
+        import pandas as pd
+
+        def normalize_text(text):
+            if not isinstance(text, str):
+                return text
+            text = unicodedata.normalize('NFKD', text)
+            text = ''.join(c for c in text if not unicodedata.combining(c))
+            return text.strip().upper()
+
         today_date = datetime.now().strftime("%d-%m-%Y")
 
-        # Obtener la ruta del directorio raíz del proyecto (un nivel arriba de `src`)
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # 📌 Sube un nivel desde `src`
-        historico_dir = os.path.join(root_dir, "data/histórico")  # 📌 `historico/` estará al lado de `data/`
-
-        # Crear la carpeta "histórico" si no existe
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        historico_dir = os.path.join(root_dir, "data/histórico")
         os.makedirs(historico_dir, exist_ok=True)
 
-        # Definir la ruta del archivo en la carpeta "histórico"
         historico_file_path = os.path.join(historico_dir, f"Informe de cargas Power BI_{today_date}.xlsm")
-
-        # Guardar una copia del archivo original en "histórico"
         shutil.copy2(self.local_file_path, historico_file_path)
 
-        # Leer el archivo Excel desde la hoja correspondiente
         df = pd.read_excel(self.local_file_path, sheet_name='Report SI SYSTEM - Customers', header=3)
-
-        # Remover espacios en blanco de los nombres de las columnas
         df.columns = df.columns.str.strip()
 
-        # Verificar si 'Consignee' está en las columnas
         if 'Consignee' not in df.columns:
             raise ValueError("La columna 'Consignee' no se encontró en el archivo.")
 
-        # Obtener los clientes registrados junto con sus correos y aliases
-        clients = self.db.get_all_clients()
+        # Normalizar columna Consignee
+        df['Consignee_norm'] = df['Consignee'].apply(normalize_text)
 
+        clients = self.db.get_all_clients()
         if not clients:
             raise ValueError("No hay clientes registrados en la base de datos.")
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Ruta inicial de la plantilla general
         default_template_path = get_resource_path('template/plantilla_Excel.xlsx')
 
-        # Mapeo de clientes y plantillas específicas
         special_clients = {
             'OLO': 'OLO Report',
             'ALPEMUSA': 'ALPEMUSA Report',
@@ -184,41 +182,54 @@ class FileProcessor:
             'PLASTIMEX': 'Plastimex Report'
         }
 
+        # 🔸 Acumuladores para "Reporte Sin Reporte"
+        aliases_usados = set()
+        consignees_personalizados = set()
+
         for client_id, nombre, correo, correo_cc, correo_bcc in clients:
-            # Si el cliente tiene una hoja de reporte específica
             if nombre in special_clients:
                 sheet_name = special_clients[nombre]
                 try:
                     df_cliente = pd.read_excel(self.local_file_path, sheet_name=sheet_name, header=3)
+                    if 'Consignee' in df_cliente.columns:
+                        df_cliente['Consignee_norm'] = df_cliente['Consignee'].apply(normalize_text)
+                        consignees_personalizados.update(df_cliente['Consignee_norm'].dropna().unique())
                 except ValueError:
                     raise ValueError(f"La hoja '{sheet_name}' no se encontró en el archivo Excel.")
 
-                # Plantilla específica para el cliente
                 template_path = get_resource_path(f'template/plantilla_{nombre.upper()}.xlsx')
-
-                # Definir el archivo de salida
                 output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
 
-                # Guardar el archivo con formato
                 _save_excel_with_format(df_cliente, template_path, output_file)
-                continue  # Pasar al siguiente cliente
+                continue
 
-            # Filtrar los datos por los aliases del cliente
             aliases = self.db.get_aliases_for_client(client_id)
-            alias_list = [alias for alias_id, alias in aliases]
+            alias_list = [normalize_text(alias) for alias_id, alias in aliases]
 
             if not alias_list:
-                continue  # Si el cliente no tiene aliases, continuar
+                continue
 
-            df_cliente = df[df['Consignee'].isin(alias_list)]
+            aliases_usados.update(alias_list)
+
+            # Filtrar normalizado
+            df_cliente = df[df['Consignee_norm'].isin(alias_list)]
 
             if df_cliente.empty:
-                continue  # Si no hay datos, continuar
+                continue
 
             output_file = os.path.join(self.output_dir, f'{nombre}.xlsx')
-
-            # Guardar el archivo con formato usando la plantilla general
             _save_excel_with_format(df_cliente, default_template_path, output_file)
+
+        # 🔸 Crear "Reporte Sin Reporte"
+        consignees_excluir = aliases_usados.union(consignees_personalizados)
+        df_sin_reporte = df[~df['Consignee_norm'].isin(consignees_excluir)].copy()
+
+        if not df_sin_reporte.empty:
+            output_file = os.path.join(self.output_dir, 'Sin_Reporte.xlsx')
+            _save_excel_with_format(df_sin_reporte, default_template_path, output_file)
+            print("✅ Reporte 'Sin Reporte' generado.")
+        else:
+            print("ℹ️ No se encontraron registros para 'Reporte Sin Reporte'.")
 
         return [nombre for client_id, nombre, _, _, _ in clients]
 
