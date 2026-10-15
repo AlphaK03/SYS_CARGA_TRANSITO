@@ -1,0 +1,255 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{array,booktabs,xcolor,listings}
+\usepackage{hyperref}
+\definecolor{azul}{HTML}{173B5E}
+\definecolor{gris}{HTML}{F4F6F8}
+\hypersetup{colorlinks=true,urlcolor=azul,linkcolor=azul}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlength{\emergencystretch}{3em}
+\newcommand{\codigo}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\archivo}[1]{{\small\path{#1}}\par}
+\lstset{language=Python,basicstyle=\ttfamily\footnotesize,
+ backgroundcolor=\color{gris},frame=single,rulecolor=\color{black!15},
+ keywordstyle=\color{azul}\bfseries,commentstyle=\color{black!55},
+ stringstyle=\color{black!75},breaklines=true,columns=fullflexible,
+ keepspaces=true,showstringspaces=false,tabsize=4,
+ aboveskip=5pt,belowskip=5pt,
+ literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+ {ñ}{{\~n}}1 {ü}{{\"u}}1}
+
+\hypersetup{pdftitle={Autenticación, permisos y tokens}}
+\begin{document}
+{\LARGE\bfseries\color{azul} Autenticación, permisos y tokens\par}
+\smallskip
+Los fragmentos conservan las llamadas del código; se omiten comentarios,
+registros de diagnóstico y partes de las funciones.
+
+\section*{Inicio de sesión y permisos}
+\archivo{src/gui/app.py}
+\begin{lstlisting}
+self.email_msal_app = PublicClientApplication(
+    client_id=MICROSOFT_CLIENT_ID,
+    authority='https://login.microsoftonline.com/common',
+    token_cache=self.email_token_cache.cache
+)
+\end{lstlisting}
+MSAL identifica la aplicación mediante el Client ID. El inicio de sesión
+ocurre en Microsoft, donde se aplican las políticas de acceso y MFA del
+tenant. Este cliente de escritorio no utiliza un secreto de aplicación.
+
+Los tres permisos son \textbf{delegados}: el acceso se realiza en nombre
+del usuario autenticado.
+\begin{center}
+\small
+\begin{tabular}{@{}p{3cm}p{3cm}p{9cm}@{}}
+\toprule
+Permiso & Servicio & Uso en la aplicación \\
+\midrule
+\codigo{User.Read} & Microsoft Graph & Consultar nombre, correo y alias del usuario. \\
+\codigo{Mail.Send} & Microsoft Graph & Enviar mensajes y adjuntos desde su buzón. \\
+\codigo{AllSites.Read} & SharePoint & Descargar el archivo configurado. Permite leer otros sitios a los que el usuario tenga acceso; no queda limitado a ese archivo. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Autenticación interactiva}
+\begin{lstlisting}
+result = self.sharepoint_msal_app.acquire_token_interactive(
+    scopes=scopes, prompt='select_account')
+\end{lstlisting}
+Esta llamada abre el navegador y MSAL incorpora PKCE, que vincula el
+canje del código de autorización con la solicitud que lo originó.
+\href{https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens#interactive-vs-silent}{Funcionamiento de MSAL}.
+
+\subsection*{Retorno del correo en la ventana de configuración}
+\begin{lstlisting}
+redirect_uri = "http://localhost:62190/"
+# ... apertura del navegador y recepción del código ...
+result = app.acquire_token_by_authorization_code(
+    auth_code[0], scopes=scopes, redirect_uri=redirect_uri)
+\end{lstlisting}
+Microsoft devuelve un código que se intercambia por tokens. La contraseña
+no pasa por este manejador.
+
+Este retorno manual no valida \codigo{state} ni configura PKCE.
+Además, el servidor usa \codigo{TCPServer(("", 62190), ...)}, que escucha
+en todas las interfaces. Para incorporar esas protecciones, debe usarse
+el flujo interactivo de MSAL y un retorno limitado al equipo local.
+
+\newpage
+\section*{Perfil y envío de correo}
+\archivo{src/gui/app.py}
+\begin{lstlisting}
+headers = {'Authorization': f'Bearer {access_token}'}
+response = requests.get(
+    'https://graph.microsoft.com/v1.0/me', headers=headers)
+response.raise_for_status()
+user_info = response.json()
+email = user_info.get('mail') or user_info.get('userPrincipalName')
+name = user_info.get('displayName')
+\end{lstlisting}
+\codigo{User.Read} permite identificar la cuenta conectada. Los alias se
+consultan con \path{/me?$select=proxyAddresses}. Estas llamadas consultan
+el perfil; no descargan mensajes del buzón.
+
+\archivo{src/email_service/email_sender.py}
+\begin{lstlisting}
+MS_SCOPES = ['User.Read', 'Mail.Send']
+
+headers = {
+    'Authorization': f'Bearer {access_token}',
+    'Content-Type': 'application/json'
+}
+# ... construcción de message ...
+response = requests.post(
+    'https://graph.microsoft.com/v1.0/me/sendMail',
+    headers=headers,
+    json=message
+)
+\end{lstlisting}
+El token viaja en la cabecera de una petición HTTPS a Microsoft Graph.
+El cuerpo contiene asunto, texto HTML, destinatarios, copias y adjunto.
+\codigo{Mail.Send} autoriza el envío; no concede lectura de correos.
+HTTP 202 significa que Microsoft aceptó la solicitud, no que el
+destinatario ya la recibió.
+\href{https://learn.microsoft.com/en-us/graph/api/user-sendmail}{Referencia de sendMail}.
+
+\subsection*{Archivo adjunto y remitente}
+\begin{lstlisting}
+with open(attachment_path, 'rb') as f:
+    file_data = f.read()
+    file_name = os.path.basename(attachment_path)
+    encoded_content = base64.b64encode(file_data).decode()
+    attachment = {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "Name": file_name,
+        "ContentBytes": encoded_content
+    }
+message["message"]["attachments"] = [attachment]
+\end{lstlisting}
+Se lee el archivo local indicado y se incorpora al mensaje. Base64 es una
+codificación, no cifrado; HTTPS protege el transporte hacia Microsoft.
+
+El campo \codigo{from} puede indicar otra dirección, pero no otorga acceso
+a ese buzón. Para enviar desde un buzón ajeno o compartido se requiere
+adaptar los scopes a \codigo{Mail.Send.Shared} y disponer de la delegación
+correspondiente en Exchange.
+\href{https://learn.microsoft.com/en-us/graph/outlook-send-mail-from-other-user}{Permisos del remitente}.
+
+\newpage
+\section*{Lectura de archivos de SharePoint}
+\archivo{src/gui/app.py}
+\begin{lstlisting}
+raw_site_url = self.config_manager.get_sharepoint_site_url()
+from urllib.parse import urlparse
+parsed_url = urlparse(raw_site_url)
+base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+scopes = [f"{base_domain}/.default"]
+\end{lstlisting}
+La dirección configurada determina el recurso para el que se pide el
+token. \codigo{/.default} solicita los permisos delegados configurados
+para SharePoint; en este registro se utiliza \codigo{AllSites.Read}.
+El usuario también debe tener acceso al archivo.
+
+\archivo{src/processing/file_processor.py}
+\begin{lstlisting}
+server_relative_path = quote(self.sharepoint_file_url)
+endpoint = f"{self.site_url}/_api/web/GetFileByServerRelativeUrl('{server_relative_path}')/$value"
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Accept": "application/json;odata=nometadata"
+}
+response = requests.get(endpoint, headers=headers, stream=True)
+
+if response.status_code == 200:
+    with open(self.local_file_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+\end{lstlisting}
+La petición GET descarga el contenido mediante la API REST de SharePoint.
+Esta operación no modifica ni sube archivos. La copia se guarda en
+\codigo{data/temp/} y puede reutilizarse en ejecuciones posteriores.
+
+El token se envía a la URL configurada. Debe ser una dirección HTTPS del
+SharePoint autorizado; este fragmento no valida una lista de dominios.
+La copia descargada queda sujeta a los permisos del disco local.
+
+\subsection*{Reutilización del token}
+\archivo{src/email_service/email_sender.py}
+\begin{lstlisting}
+accounts = self.msal_app.get_accounts()
+if accounts:
+    result = self.msal_app.acquire_token_silent(
+        self.MS_SCOPES, account=accounts[0])
+    if result and 'access_token' in result:
+        return result['access_token']
+\end{lstlisting}
+MSAL busca un token válido en la caché o intenta renovarlo. Si no obtiene
+uno, el envío requiere iniciar sesión otra vez. La renovación sigue
+sujeta a las políticas de Microsoft; cerrar el navegador no elimina los
+tokens guardados.
+\href{https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens#interactive-vs-silent}{Adquisición silenciosa de tokens}.
+
+\newpage
+\section*{Almacenamiento de tokens y cierre de sesión}
+\archivo{src/gui/app.py}
+\begin{lstlisting}
+self.email_token_cache = SecureTokenCache(
+    cache_name='email_token_cache')
+self.sharepoint_token_cache = SecureTokenCache(
+    cache_name='sharepoint_token_cache')
+\end{lstlisting}
+Correo y SharePoint mantienen cachés separadas. Cada una puede contener
+tokens de acceso y de renovación, por lo que su contenido debe tratarse
+como una credencial.
+
+\archivo{src/utils/token_cache.py}
+\begin{lstlisting}
+serialized_cache = self.cache.serialize()
+# ... división en fragmentos ...
+keyring.set_password('my_app', fragment_key, fragment)
+\end{lstlisting}
+La caché se guarda mediante \codigo{keyring}, que puede usar el almacén
+de credenciales de Windows. La protección depende del backend activo:
+el código no lo fuerza ni lo comprueba. Dividir la caché en fragmentos
+resuelve límites de tamaño, pero no añade cifrado.
+\href{https://keyring.readthedocs.io/en/latest/}{Almacenamiento con keyring}.
+
+\begin{lstlisting}
+fragment = keyring.get_password('my_app', fragment_key)
+# ... unión de los fragmentos ...
+self.cache.deserialize(serialized_cache)
+\end{lstlisting}
+Al abrir la aplicación, los fragmentos se recuperan y reconstruyen en
+memoria para que MSAL pueda reutilizar la sesión.
+
+\subsection*{Cerrar sesión}
+\archivo{src/gui/app.py}
+\begin{lstlisting}
+self.config_manager.clear_credentials()
+self.email_token_cache.clear_cache()
+self.sharepoint_token_cache.clear_cache()
+\end{lstlisting}
+Se eliminan los datos de sesión de la configuración y se solicita vaciar
+las dos cachés. En \codigo{clear_cache()} se utilizan estas llamadas:
+\begin{lstlisting}
+self.cache.deserialize("")
+# ... recorrido de los fragmentos almacenados ...
+keyring.delete_password('my_app', fragment_key)
+\end{lstlisting}
+La limpieza afecta a la memoria y al almacén local. No revoca el
+consentimiento en Entra ni cierra la sesión del navegador. Tampoco borra
+archivos descargados o correos enviados. Si el almacén falla, la eliminación
+puede quedar incompleta.
+
+Los registros de diagnóstico pueden contener cuentas, destinatarios,
+rutas y errores. El servidor del retorno manual también puede registrar
+la URL con el código de autorización; esos registros no deben compartirse
+sin depurarlos.
+\end{document}

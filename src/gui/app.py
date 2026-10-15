@@ -41,10 +41,10 @@ from manager.client_manager import context_menu_add_to_list, show_context_menu
 from src.manager.client_manager import delete_client_from_context_menu, edit_alias_inline, undo_action, \
     send_reports_to_selected_clients, open_reports_in_excel, select_all_with_reports_in_all_clients, filter_all_clients
 
-# Microsoft OAuth2 - ASW SAN JOSE
-#MICROSOFT_CLIENT_ID = "3c6abf1d-1a49-4b55-9bf6-4ed5c3dcad51"
-MICROSOFT_CLIENT_ID = "077e19a4-ab53-4e55-8286-ec02dc3cf36c"
-MICROSOFT_TENANT_ID = "common"
+# Microsoft OAuth2 - CHC Reportes Astra (prueba en DEV)
+MICROSOFT_CLIENT_ID = "baeefcb7-3ddb-42ad-9812-7f6267f02c05"
+MICROSOFT_TENANT_ID = "f7015bc9-c229-413a-ab08-e1e5a76a09f1"
+MICROSOFT_AUTHORITY = f'https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}'
 
 # Establecer AppUserModelID
 app_id = "CHC.Reportes"
@@ -121,17 +121,17 @@ class Application(ttk.Window):
         self.email_token_cache = SecureTokenCache(cache_name='email_token_cache')
         self.sharepoint_token_cache = SecureTokenCache(cache_name='sharepoint_token_cache')
 
-        # Configurar MSAL para la cuenta de origen (correo) con "common"
+        # Configurar MSAL para correo en el tenant de CHC
         self.email_msal_app = PublicClientApplication(
             client_id=MICROSOFT_CLIENT_ID,
-            authority='https://login.microsoftonline.com/common',
+            authority=MICROSOFT_AUTHORITY,
             token_cache=self.email_token_cache.cache  # Usar el caché específico para correo
         )
 
         # Configurar MSAL para SharePoint con el TENANT_ID específico
         self.sharepoint_msal_app = PublicClientApplication(
             client_id=MICROSOFT_CLIENT_ID,
-            authority=f'https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}',
+            authority=MICROSOFT_AUTHORITY,
             token_cache=self.sharepoint_token_cache.cache  # Usar el caché específico para SharePoint
         )
 
@@ -172,7 +172,7 @@ class Application(ttk.Window):
             return self.tk.call('tk', 'scaling')
 
     def get_email_access_token(self):
-        """Obtiene el token para la cuenta de origen (correo) usando el tenant 'common'."""
+        """Obtiene el token para la cuenta de origen en el tenant de CHC."""
         scopes = ['Mail.Send']  # Ajusta el scope según sea necesario
         accounts = self.email_msal_app.get_accounts()
         result = None
@@ -550,7 +550,7 @@ class Application(ttk.Window):
 
         # Información de la aplicación
         app_name = "Gestor de Reportes"
-        version = "Versión 2.4.3"
+        version = "Versión 2.4.6"
         company = "CHC-Consultores"
 
         # Etiqueta de nombre de la aplicación con tamaño de fuente ajustado
@@ -746,8 +746,6 @@ class Application(ttk.Window):
             # Funciones de botones
             def iniciar_oauth2():
                 try:
-                    tenant_id = "common"
-                    authority = f'https://login.microsoftonline.com/{tenant_id}'
                     redirect_uri = "http://localhost:62190/"
                     scopes = EmailSender.MS_SCOPES
 

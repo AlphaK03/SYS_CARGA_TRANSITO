@@ -28,34 +28,142 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def _save_excel_with_format(df_cliente: pd.DataFrame, template_path: str, output_file: str):
-    """
-    Guarda el DataFrame en una copia de la plantilla de Excel,
-    agregando los datos a partir de la fila 5.
+    import re
+    from datetime import datetime, date
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    import pandas as pd
+    import numpy as np
+    import uuid
 
-    Args:
-        df_cliente (pd.DataFrame): DataFrame del cliente a guardar.
-        template_path (str): Ruta de la plantilla de Excel.
-        output_file (str): Ruta del archivo Excel a generar.
-    """
-    # Cargar la plantilla
-    workbook = load_workbook(template_path)
-    worksheet = workbook.active  # Suponiendo que la plantilla tiene una sola hoja
+    HIDDEN_COLS = {"Consignee_norm", "__tmp_norm"}
+    df_export = df_cliente.drop(columns=[c for c in HIDDEN_COLS if c in df_cliente.columns],
+                                errors="ignore").copy()
 
-    # Escribir los nombres de las columnas en la fila 4 (encabezado)
-    for col_idx, column_name in enumerate(df_cliente.columns, start=1):
-        cell = worksheet.cell(row=4, column=col_idx)
-        cell.value = column_name
-        # Aplicar formato al encabezado si es necesario
+    # --- Detectar columnas tipo fecha (acepta / o - y 2 o 4 dígitos de año) ---
+    date_regex = re.compile(r"^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s*/?\s*$")
+
+    def looks_like_date_series(s: pd.Series) -> bool:
+        if s.dropna().empty:
+            return False
+        as_str = s.dropna().astype(str).str.strip()
+        return (as_str.str.match(date_regex)).mean() >= 0.6  # un poco más laxo
+
+    date_cols = [c for c in df_export.columns if looks_like_date_series(df_export[c])]
+
+    # --- Normalizador robusto para '9/8/25', '09-8-2025', '09/08/25/' -> '09/08/2025'
+    def _normalize_date_text(txt: str, pivot_year: int = 49) -> str | None:
+        if txt is None:
+            return None
+        s = str(txt).strip()
+        s = re.sub(r"/\s*$", "", s)  # quitar barra final
+        m = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})\s*$", s)
+        if not m:
+            return None
+        d, mth, yr = m.groups()
+        d = d.zfill(2)
+        mth = mth.zfill(2)
+        if len(yr) == 2:
+            yy = int(yr)
+            yr = str(2000 + yy) if yy <= pivot_year else str(1900 + yy)
+        return f"{d}/{mth}/{yr}"
+
+    # Intento de conversión vectorial; si no llega al umbral, igual mantengo la columna en date_cols
+    for col in list(date_cols):
+        s = df_export[col]
+        if not pd.api.types.is_datetime64_any_dtype(s):
+            norm = s.astype(str).map(lambda x: _normalize_date_text(x))
+            parsed = pd.to_datetime(norm, dayfirst=True, errors="coerce")
+            # Si parsea una proporción razonable, reemplazo la serie
+            if parsed.notna().mean() >= 0.5:
+                df_export[col] = parsed
+
+    # --- Cargar plantilla ---
+    wb = load_workbook(template_path)
+    ws = wb.active
+
+    # Limpiar tablas/auto-filtros previos del template (evita "reparaciones" de Excel)
+    try:
+        for t in list(ws._tables):
+            ws._tables.remove(t)
+    except Exception:
+        pass
+    ws.auto_filter.ref = None
+
+    # Encabezados en fila 4
+    for col_idx, name in enumerate(df_export.columns, start=1):
+        cell = ws.cell(row=4, column=col_idx)
+        cell.value = name
         cell.fill = PatternFill(start_color='63B9FF', end_color='63B9FF', fill_type='solid')
         cell.font = Font(bold=True, color='FFFFFF')
 
-    # Escribir los datos a partir de la fila 5
-    for row_idx, row in enumerate(df_cliente.values, start=5):
-        for col_idx, value in enumerate(row, start=1):
-            worksheet.cell(row=row_idx, column=col_idx, value=value)
+    # --- Helper: coerción por celda a datetime ---
+    def _coerce_to_datetime(v):
+        if v is None:
+            return None
+        if isinstance(v, (datetime,)):
+            return v
+        if isinstance(v, date):
+            return datetime(v.year, v.month, v.day)
+        if isinstance(v, pd.Timestamp):
+            return v.to_pydatetime()
+        if isinstance(v, np.datetime64):
+            try:
+                return pd.to_datetime(v).to_pydatetime()
+            except Exception:
+                return None
+        # Texto -> normalizar y convertir
+        s = _normalize_date_text(v)
+        if s is None:
+            return None
+        try:
+            return pd.to_datetime(s, dayfirst=True, errors="raise").to_pydatetime()
+        except Exception:
+            return None
 
-    # Guardar el nuevo archivo Excel
-    workbook.save(output_file)
+    # --- Datos desde fila 5 (forzando fechas reales en columnas de fecha) ---
+    excel_date_format = 'DD/MM/YYYY'
+    start_row = 5
+    for r, row in enumerate(df_export.itertuples(index=False, name=None), start=start_row):
+        for c, val in enumerate(row, start=1):
+            col_name = df_export.columns[c - 1]
+            cell = ws.cell(row=r, column=c)  # no pasar value aquí
+
+            if col_name in date_cols:
+                dt = _coerce_to_datetime(val)
+                if dt is not None:
+                    cell.value = dt
+                    cell.number_format = excel_date_format
+                else:
+                    # si no se pudo parsear, deja la celda vacía en vez de texto
+                    cell.value = None
+            else:
+                cell.value = val
+
+    # --- Tabla con filtros (si hay datos) ---
+    n_rows = len(df_export)
+    n_cols = len(df_export.columns)
+    ws.freeze_panes = "A5"
+
+    if n_cols > 0 and n_rows > 0:
+        last_row = (start_row - 1) + n_rows
+        last_col_letter = get_column_letter(n_cols)
+        table_ref = f"A4:{last_col_letter}{last_row}"
+
+        table_name = f"Tbl_{uuid.uuid4().hex[:8]}"
+        tbl = Table(displayName=table_name, ref=table_ref)
+        tbl.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium9",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False
+        )
+        ws.add_table(tbl)
+
+    wb.save(output_file)
 
 class FileProcessor:
     """
